@@ -9,6 +9,7 @@ from pathlib import Path
 from jose import jwt, JWTError
 import os
 from fastapi.middleware.cors import CORSMiddleware
+from collections import defaultdict
 
 from backend.database import lifespan, get_db
 from backend.utils import (
@@ -91,6 +92,20 @@ class ProductUpdate(BaseModel):
     stock_quantity: Optional[int] = None
     is_active: Optional[bool] = None
 
+class CartItemAdd(BaseModel):
+    product_id: int
+    quantity: int = 1
+
+class CartItemUpdate(BaseModel):
+    quantity: int
+
+class CheckoutRequest(BaseModel):
+    full_name: str
+    shipping_address: str
+    city: str
+    zip_code: str
+    phone: str
+
 
 
 # --- Auth Dependencies ---
@@ -117,6 +132,11 @@ async def require_seller(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Access denied: Sellers only")
     return current_user
 
+async def require_buyer(current_user: dict = Depends(get_current_user)):
+    if current_user["user_type"] != "buyer":
+        raise HTTPException(status_code=403, detail="Access denied: Buyers only")
+    return current_user
+    
 # --- Page Routes ---
 @app.get("/", response_class=HTMLResponse)
 async def serve_landing(request: Request): return templates.TemplateResponse("index.html", {"request": request})
@@ -463,6 +483,150 @@ async def get_categories(db=Depends(get_db)):
     
     categories = await db.fetch("SELECT id, name FROM categories")
     return [dict(c) for c in categories]
+
+
+
+# --- CART ROUTES ---
+@app.get("/api/cart")
+async def get_cart(current_user: dict = Depends(require_buyer), db=Depends(get_db)):
+    items = await db.fetch(
+        """SELECT ci.id, ci.product_id, ci.quantity, p.name, p.price, p.image_url, p.stock_quantity, p.seller_id 
+           FROM cart_items ci 
+           JOIN products p ON ci.product_id = p.id 
+           WHERE ci.buyer_id = $1 AND p.is_active = TRUE""",
+        current_user["id"]
+    )
+    return [dict(item) for item in items]
+
+@app.post("/api/cart")
+async def add_to_cart(data: CartItemAdd, current_user: dict = Depends(require_buyer), db=Depends(get_db)):
+    # Verify product exists and is active
+    product = await db.fetchrow("SELECT id, stock_quantity, is_active FROM products WHERE id = $1", data.product_id)
+    if not product or not product["is_active"]:
+        raise HTTPException(status_code=404, detail="Product not found or unavailable")
+    if product["stock_quantity"] < data.quantity:
+        raise HTTPException(status_code=400, detail="Insufficient stock")
+
+    # Upsert cart item
+    existing = await db.fetchrow(
+        "SELECT id, quantity FROM cart_items WHERE buyer_id = $1 AND product_id = $2",
+        current_user["id"], data.product_id
+    )
+    
+    if existing:
+        new_qty = existing["quantity"] + data.quantity
+        if product["stock_quantity"] < new_qty:
+            raise HTTPException(status_code=400, detail="Insufficient stock for requested quantity")
+        await db.execute(
+            "UPDATE cart_items SET quantity = $1 WHERE id = $2",
+            new_qty, existing["id"]
+        )
+    else:
+        await db.execute(
+            "INSERT INTO cart_items (buyer_id, product_id, quantity) VALUES ($1, $2, $3)",
+            current_user["id"], data.product_id, data.quantity
+        )
+    
+    return {"message": "Item added to cart"}
+
+@app.put("/api/cart/{item_id}")
+async def update_cart_item(item_id: int, data: CartItemUpdate, current_user: dict = Depends(require_buyer), db=Depends(get_db)):
+    if data.quantity <= 0:
+        await db.execute("DELETE FROM cart_items WHERE id = $1 AND buyer_id = $2", item_id, current_user["id"])
+        return {"message": "Item removed"}
+    
+    # Check stock before updating
+    cart_item = await db.fetchrow("SELECT product_id FROM cart_items WHERE id = $1 AND buyer_id = $2", item_id, current_user["id"])
+    if not cart_item:
+        raise HTTPException(status_code=404, detail="Cart item not found")
+        
+    product = await db.fetchrow("SELECT stock_quantity FROM products WHERE id = $1", cart_item["product_id"])
+    if product["stock_quantity"] < data.quantity:
+        raise HTTPException(status_code=400, detail="Insufficient stock")
+
+    await db.execute(
+        "UPDATE cart_items SET quantity = $1 WHERE id = $2 AND buyer_id = $3",
+        data.quantity, item_id, current_user["id"]
+    )
+    return {"message": "Cart updated"}
+
+@app.delete("/api/cart/{item_id}")
+async def remove_from_cart(item_id: int, current_user: dict = Depends(require_buyer), db=Depends(get_db)):
+    await db.execute("DELETE FROM cart_items WHERE id = $1 AND buyer_id = $2", item_id, current_user["id"])
+    return {"message": "Item removed from cart"}
+
+# --- CHECKOUT ROUTE ---
+@app.post("/api/checkout")
+async def process_checkout(data: CheckoutRequest, current_user: dict = Depends(require_buyer), db=Depends(get_db)):
+    # 1. Fetch cart items
+    cart = await db.fetch(
+        """SELECT ci.product_id, ci.quantity, p.price, p.seller_id, p.stock_quantity, p.name 
+           FROM cart_items ci 
+           JOIN products p ON ci.product_id = p.id 
+           WHERE ci.buyer_id = $1 AND p.is_active = TRUE""",
+        current_user["id"]
+    )
+    if not cart:
+        raise HTTPException(status_code=400, detail="Your cart is empty")
+
+    # 2. Validate stock for all items
+    for item in cart:
+        if item["stock_quantity"] < item["quantity"]:
+            raise HTTPException(status_code=400, detail=f"Insufficient stock for '{item['name']}'")
+
+    # 3. Group items by seller (to create separate orders per seller)
+    seller_items = defaultdict(list)
+    for item in cart:
+        seller_items[item["seller_id"]].append(item)
+
+    created_orders = []
+
+    # 4. Execute Atomic Transaction (Prevents race conditions)
+    async with db.transaction():
+        for seller_id, items in seller_items.items():
+            total_amount = sum(item["price"] * item["quantity"] for item in items)
+            full_address = f"{data.shipping_address}, {data.city}, {data.zip_code}"
+            
+            # Create Order
+            order_id = await db.fetchval(
+                """INSERT INTO orders (buyer_id, seller_id, total_amount, status, shipping_address) 
+                   VALUES ($1, $2, $3, 'pending', $4) RETURNING id""",
+                current_user["id"], seller_id, total_amount, full_address
+            )
+            created_orders.append(order_id)
+
+            # Create Order Items & Deduct Stock
+            for item in items:
+                await db.execute(
+                    """INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase) 
+                       VALUES ($1, $2, $3, $4)""",
+                    order_id, item["product_id"], item["quantity"], item["price"]
+                )
+                await db.execute(
+                    "UPDATE products SET stock_quantity = stock_quantity - $1 WHERE id = $2",
+                    item["quantity"], item["product_id"]
+                )
+        
+        # Clear Cart
+        await db.execute("DELETE FROM cart_items WHERE buyer_id = $1", current_user["id"])
+
+    # 5. Create Notifications (Outside transaction for performance)
+    await db.execute(
+        """INSERT INTO notifications (user_id, title, message, type) 
+           VALUES ($1, $2, $3, $4)""",
+        current_user["id"], "Order Placed! 🎉", f"Your order(s) #{', #'.join(map(str, created_orders))} have been confirmed.", "success"
+    )
+    
+    # Notify sellers
+    for seller_id, items in seller_items.items():
+        await db.execute(
+            """INSERT INTO notifications (user_id, title, message, type) 
+               VALUES ($1, $2, $3, $4)""",
+            seller_id, "New Order Received! 📦", f"You have a new pending order. Check your dashboard.", "info"
+        )
+
+    return {"order_ids": created_orders, "message": "Checkout successful!"}
+    
 
 if __name__ == "__main__":
     import uvicorn

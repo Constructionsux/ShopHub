@@ -15,8 +15,8 @@ async def lifespan(app: FastAPI):
     # High-performance: Pre-warm pool with min_size, scale up to max_size
     pool = await asyncpg.create_pool(
         DATABASE_URL, 
-        min_size=5, 
-        max_size=20,
+        min_size=1, 
+        max_size=5,
         command_timeout=60,
         ssl="require"
     )

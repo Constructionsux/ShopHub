@@ -22,9 +22,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         renderSidebar();
         await loadCategories();
-        await loadNotifications(); 
+
         // Default view
         showSection('overview');
+
+        // Load notifications AFTER everything else, with its own error handling
+        loadNotificationsAsync();
 
     } catch (error) {
         console.error('Dashboard init error:', error);
@@ -32,6 +35,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.location.href = '/login';
     }
 });
+
+// Separate async function for notifications that doesn't affect main flow
+async function loadNotificationsAsync() {
+    try {
+        await loadNotifications();
+    } catch (error) {
+        console.warn('Failed to load notifications (non-critical):', error);
+        // Don't log out, just log the warning
+    }
+}
 
 function renderSidebar() {
     const menu = document.getElementById('sidebarMenu');
@@ -587,54 +600,74 @@ async function loadNotifications() {
             headers: { 'Authorization': `Bearer ${token}` }
         });
         
-        if (!res.ok) return;
+        // If unauthorized, don't throw - just return silently
+        if (res.status === 401) {
+            console.warn('Notifications: Unauthorized (token may be expired)');
+            return;
+        }
+        
+        if (!res.ok) {
+            console.warn('Notifications: Failed to load');
+            return;
+        }
+        
         const notifs = await res.json();
         
         const unreadCount = notifs.filter(n => !n.is_read).length;
         const badge = document.getElementById('notifBadge');
         
-        if (unreadCount > 0) {
-            badge.textContent = unreadCount;
-            badge.style.display = 'flex';
-        } else {
-            badge.style.display = 'none';
+        if (badge) {
+            if (unreadCount > 0) {
+                badge.textContent = unreadCount;
+                badge.style.display = 'flex';
+            } else {
+                badge.style.display = 'none';
+            }
         }
 
         const list = document.getElementById('notifList');
-        if (notifs.length === 0) {
-            list.innerHTML = '<p style="padding: 20px; text-align: center; color: var(--text-muted);">No notifications</p>';
-        } else {
-            list.innerHTML = notifs.map(n => `
-                <div class="notif-item ${!n.is_read ? 'unread' : ''}" onclick="markAsRead(${n.id})">
-                    <h5>${n.title}</h5>
-                    <p>${n.message}</p>
-                    <div class="time">${new Date(n.created_at).toLocaleDateString()}</div>
-                </div>
-            `).join('');
+        if (list) {
+            if (notifs.length === 0) {
+                list.innerHTML = '<p style="padding: 20px; text-align: center; color: var(--text-muted);">No notifications</p>';
+            } else {
+                list.innerHTML = notifs.map(n => `
+                    <div class="notif-item ${!n.is_read ? 'unread' : ''}" onclick="markAsRead(${n.id})">
+                        <h5>${n.title}</h5>
+                        <p>${n.message}</p>
+                        <div class="time">${new Date(n.created_at).toLocaleDateString()}</div>
+                    </div>
+                `).join('');
+            }
         }
     } catch (error) {
-        console.error('Failed to load notifications:', error);
+        // Silent fail - notifications are not critical
+        console.warn('Notification loading error:', error);
     }
 }
 
 // Bell icon click handler
-document.getElementById('notifBtn').addEventListener('click', async (e) => {
-    e.stopPropagation();
-    const dropdown = document.getElementById('notifDropdown');
-    dropdown.classList.toggle('active');
-    
-    // Load notifications when opening
-    if (dropdown.classList.contains('active')) {
-        await loadNotifications();
-    }
-});
+const notifBtn = document.getElementById('notifBtn');
+if (notifBtn) {
+    notifBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const dropdown = document.getElementById('notifDropdown');
+        if (dropdown) {
+            dropdown.classList.toggle('active');
+            
+            // Load notifications when opening
+            if (dropdown.classList.contains('active')) {
+                await loadNotifications();
+            }
+        }
+    });
+}
 
 // Close dropdown when clicking outside
 document.addEventListener('click', (e) => {
     const dropdown = document.getElementById('notifDropdown');
     const bell = document.getElementById('notifBtn');
     
-    if (!dropdown.contains(e.target) && !bell.contains(e.target)) {
+    if (dropdown && bell && !dropdown.contains(e.target) && !bell.contains(e.target)) {
         dropdown.classList.remove('active');
     }
 });
@@ -642,6 +675,8 @@ document.addEventListener('click', (e) => {
 // Mark single notification as read
 async function markAsRead(notifId) {
     const token = localStorage.getItem('token');
+    if (!token) return;
+    
     try {
         await fetch(`${API_URL}/notifications/${notifId}/read`, {
             method: 'PUT',
@@ -649,36 +684,44 @@ async function markAsRead(notifId) {
         });
         await loadNotifications();
     } catch (error) {
-        console.error('Failed to mark notification as read:', error);
+        console.warn('Failed to mark notification as read:', error);
     }
 }
 
 // Mark all notifications as read
-document.getElementById('markAllRead').addEventListener('click', async (e) => {
-    e.stopPropagation();
-    const token = localStorage.getItem('token');
-    
-    try {
-        const res = await fetch(`${API_URL}/notifications`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const notifs = await res.json();
+const markAllReadBtn = document.getElementById('markAllRead');
+if (markAllReadBtn) {
+    markAllReadBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const token = localStorage.getItem('token');
+        if (!token) return;
         
-        // Mark all unread as read
-        for (const n of notifs) {
-            if (!n.is_read) {
-                await fetch(`${API_URL}/notifications/${n.id}/read`, {
-                    method: 'PUT',
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
+        try {
+            const res = await fetch(`${API_URL}/notifications`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (!res.ok) return;
+            
+            const notifs = await res.json();
+            
+            // Mark all unread as read
+            for (const n of notifs) {
+                if (!n.is_read) {
+                    await fetch(`${API_URL}/notifications/${n.id}/read`, {
+                        method: 'PUT',
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                }
             }
+            
+            await loadNotifications();
+        } catch (error) {
+            console.warn('Failed to mark all as read:', error);
         }
-        
-        await loadNotifications();
-    } catch (error) {
-        console.error('Failed to mark all as read:', error);
-    }
-});
+    });
+}
+
 function logout() {
     localStorage.removeItem('token');
     localStorage.removeItem('userType');

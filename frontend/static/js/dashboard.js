@@ -1,9 +1,11 @@
 const API_URL = '/api';
 let currentUser = null;
 let categories = [];
+let allProducts = [];
 let uploadedProductImageUrl = '';
 let uploadedLogoUrl = '';
 
+// --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', async () => {
     const token = localStorage.getItem('token');
     if (!token) {
@@ -16,9 +18,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!userRes.ok) throw new Error('Unauthorized');
         currentUser = await userRes.json();
 
-        document.getElementById('userName').textContent = currentUser.full_name;
-        document.getElementById('userRole').textContent = currentUser.user_type;
-        document.getElementById('userAvatar').textContent = currentUser.full_name.charAt(0).toUpperCase();
+        const userNameEl = document.getElementById('userName');
+        const userRoleEl = document.getElementById('userRole');
+        const userAvatarEl = document.getElementById('userAvatar');
+        
+        if (userNameEl) userNameEl.textContent = currentUser.full_name;
+        if (userRoleEl) userRoleEl.textContent = currentUser.user_type;
+        if (userAvatarEl) userAvatarEl.textContent = currentUser.full_name.charAt(0).toUpperCase();
 
         renderSidebar();
         await loadCategories();
@@ -26,7 +32,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Default view
         showSection('overview');
 
-        // Load notifications AFTER everything else, with its own error handling
+        // Load notifications safely in the background
         loadNotificationsAsync();
 
     } catch (error) {
@@ -36,18 +42,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// Separate async function for notifications that doesn't affect main flow
-async function loadNotificationsAsync() {
-    try {
-        await loadNotifications();
-    } catch (error) {
-        console.warn('Failed to load notifications (non-critical):', error);
-        // Don't log out, just log the warning
-    }
-}
-
+// --- NAVIGATION & UI ---
 function renderSidebar() {
     const menu = document.getElementById('sidebarMenu');
+    if (!menu) return;
+
     if (currentUser.user_type === 'seller') {
         menu.innerHTML = `
             <li><a href="#" onclick="showSection('overview')" class="active" id="nav-overview"><i class="fas fa-chart-line"></i> Overview</a></li>
@@ -55,35 +54,19 @@ function renderSidebar() {
             <li><a href="#" onclick="showSection('profile')" id="nav-profile"><i class="fas fa-user-circle"></i> Store Profile</a></li>
             <li><a href="#" onclick="showSection('orders')" id="nav-orders"><i class="fas fa-shopping-cart"></i> Orders</a></li>
         `;
-        document.getElementById('sellerStats').style.display = 'grid';
-        document.getElementById('sellerProductsSection').style.display = 'block';
     } else {
         menu.innerHTML = `
             <li><a href="#" class="active"><i class="fas fa-home"></i> Overview</a></li>
             <li><a href="#"><i class="fas fa-shopping-bag"></i> My Orders</a></li>
         `;
-        document.getElementById('buyerSection').style.display = 'block';
     }
 }
 
 function showSection(section) {
-    // Helper functions to safely show/hide elements without throwing errors
-    const hide = (id) => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = 'none';
-    };
-    
-    const showBlock = (id) => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = 'block';
-    };
+    const hide = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'none'; };
+    const showBlock = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'block'; };
+    const showGrid = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'grid'; };
 
-    const showGrid = (id) => {
-        const el = document.getElementById(id);
-        if (el) el.style.display = 'grid';
-    };
-
-    // Safely hide all possible sections
     hide('sellerStats');
     hide('sellerProductsSection');
     hide('sellerProfileSection');
@@ -91,10 +74,8 @@ function showSection(section) {
     hide('overviewSection');
     hide('buyerSection');
 
-    // Remove active class from all nav links
     document.querySelectorAll('.sidebar-menu a').forEach(a => a.classList.remove('active'));
 
-    // Show the requested section safely
     if (currentUser.user_type === 'seller') {
         if (section === 'overview') {
             showGrid('sellerStats');
@@ -120,85 +101,235 @@ function showSection(section) {
             loadSellerOrders();
         }
     } else {
-        // Buyer view
         showBlock('buyerSection');
         const title = document.getElementById('pageTitle'); if (title) title.textContent = 'Buyer Dashboard';
     }
 }
 
-// --- IMAGE UPLOAD HANDLERS ---
-async function handleProductImageUpload(input) {
-    if (input.files && input.files[0]) {
-        const file = input.files[0];
-        const formData = new FormData();
-        formData.append('file', file);
+// --- NOTIFICATIONS ---
+async function loadNotificationsAsync() {
+    try {
+        await loadNotifications();
+    } catch (error) {
+        console.warn('Failed to load notifications (non-critical):', error);
+    }
+}
 
-        document.getElementById('uploadText').textContent = 'Uploading...';
+async function loadNotifications() {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    
+    try {
+        const res = await fetch(`${API_URL}/notifications`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res.status === 401 || !res.ok) return;
         
-        try {
-            const token = localStorage.getItem('token');
-            const res = await fetch(`${API_URL}/upload-image`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: formData
-            });
-            const data = await res.json();
-            
-            if (res.ok) {
-                uploadedProductImageUrl = data.url;
-                document.getElementById('prodImageUrl').value = data.url;
-                document.getElementById('productImagePreview').src = data.url;
-                document.getElementById('productImagePreview').style.display = 'block';
-                document.getElementById('uploadText').textContent = 'Change Image';
-            } else {
-                alert(data.detail || 'Upload failed');
-                document.getElementById('uploadText').textContent = 'Click to upload image';
-            }
-        } catch (error) {
-            alert('Network error during upload');
-            document.getElementById('uploadText').textContent = 'Click to upload image';
+        const notifs = await res.json();
+        const unreadCount = notifs.filter(n => !n.is_read).length;
+        const badge = document.getElementById('notifBadge');
+        
+        if (badge) {
+            badge.textContent = unreadCount;
+            badge.style.display = unreadCount > 0 ? 'flex' : 'none';
         }
+
+        const list = document.getElementById('notifList');
+        if (list) {
+            if (notifs.length === 0) {
+                list.innerHTML = '<p style="padding: 20px; text-align: center; color: var(--text-muted);">No notifications</p>';
+            } else {
+                list.innerHTML = notifs.map(n => `
+                    <div class="notif-item ${!n.is_read ? 'unread' : ''}" onclick="markAsRead(${n.id})">
+                        <h5>${n.title}</h5>
+                        <p>${n.message}</p>
+                        <div class="time">${new Date(n.created_at).toLocaleDateString()}</div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (error) {
+        console.warn('Notification loading error:', error);
     }
 }
 
-async function handleLogoUpload(input) {
-    if (input.files && input.files[0]) {
-        const file = input.files[0];
-        const formData = new FormData();
-        formData.append('file', file);
-
-        try {
-            const token = localStorage.getItem('token');
-            const res = await fetch(`${API_URL}/upload-image`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
-                body: formData
-            });
-            const data = await res.json();
-            
-            if (res.ok) {
-                uploadedLogoUrl = data.url;
-                document.getElementById('profileLogoPreview').src = data.url;
-            } else {
-                alert(data.detail || 'Upload failed');
-            }
-        } catch (error) {
-            alert('Network error during upload');
+const notifBtn = document.getElementById('notifBtn');
+if (notifBtn) {
+    notifBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const dropdown = document.getElementById('notifDropdown');
+        if (dropdown) {
+            dropdown.classList.toggle('active');
+            if (dropdown.classList.contains('active')) await loadNotifications();
         }
-    }
+    });
 }
 
-// --- PRODUCT CRUD (Updated for Image) ---
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('notifDropdown');
+    const bell = document.getElementById('notifBtn');
+    if (dropdown && bell && !dropdown.contains(e.target) && !bell.contains(e.target)) {
+        dropdown.classList.remove('active');
+    }
+});
+
+async function markAsRead(notifId) {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+        await fetch(`${API_URL}/notifications/${notifId}/read`, {
+            method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }
+        });
+        await loadNotifications();
+    } catch (error) { console.warn('Mark read error:', error); }
+}
+
+const markAllReadBtn = document.getElementById('markAllRead');
+if (markAllReadBtn) {
+    markAllReadBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        try {
+            const res = await fetch(`${API_URL}/notifications`, { headers: { 'Authorization': `Bearer ${token}` } });
+            if (!res.ok) return;
+            const notifs = await res.json();
+            for (const n of notifs) {
+                if (!n.is_read) {
+                    await fetch(`${API_URL}/notifications/${n.id}/read`, {
+                        method: 'PUT', headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                }
+            }
+            await loadNotifications();
+        } catch (error) { console.warn('Mark all read error:', error); }
+    });
+}
+
+// --- SELLER DATA & PRODUCTS ---
+async function loadSellerData() {
+    const token = localStorage.getItem('token');
+    const headers = { 'Authorization': `Bearer ${token}` };
+    
+    try {
+        const statsRes = await fetch(`${API_URL}/dashboard/stats`, { headers });
+        if (statsRes.ok) {
+            const stats = await statsRes.json();
+            const el1 = document.getElementById('statActiveProducts'); if(el1) el1.textContent = stats.active_products;
+            const el2 = document.getElementById('statLowStock'); if(el2) el2.textContent = stats.low_stock;
+            const el3 = document.getElementById('statInventoryValue'); if(el3) el3.textContent = `$${parseFloat(stats.inventory_value || 0).toFixed(2)}`;
+        }
+
+        const productsRes = await fetch(`${API_URL}/seller/products`, { headers });
+        if (productsRes.ok) {
+            allProducts = await productsRes.json();
+            populateCategoryFilter();
+            renderProductsTable(allProducts);
+        }
+    } catch (error) { console.error('Load seller data error:', error); }
+}
+
+async function loadOverviewProducts() {
+    const token = localStorage.getItem('token');
+    try {
+        const res = await fetch(`${API_URL}/seller/products`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) return;
+        const products = await res.json();
+        const recentProducts = products.filter(p => p.is_active).slice(0, 3);
+        const grid = document.getElementById('recentProductsGrid');
+        if (!grid) return;
+
+        if (recentProducts.length === 0) {
+            grid.innerHTML = '<p style="color: var(--text-muted); grid-column: 1/-1; text-align: center; padding: 30px;">No active products yet.</p>';
+            return;
+        }
+
+        grid.innerHTML = recentProducts.map(p => `
+            <div class="recent-product-card">
+                ${p.image_url ? `<img src="${p.image_url}" alt="${p.name}">` : `<div class="no-image"><i class="fas fa-box"></i></div>`}
+                <div class="recent-product-info">
+                    <h4>${p.name}</h4>
+                    <p>${p.category_name || 'Uncategorized'}</p>
+                    <p class="price">$${parseFloat(p.price).toFixed(2)}</p>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) { console.error('Overview products error:', error); }
+}
+
 async function loadCategories() {
-    const res = await fetch(`${API_URL}/categories`);
-    categories = await res.json();
-    const select = document.getElementById('prodCategory');
-    if(select) select.innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    try {
+        const res = await fetch(`${API_URL}/categories`);
+        if (res.ok) {
+            categories = await res.json();
+            const select = document.getElementById('prodCategory');
+            if (select) select.innerHTML = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+        }
+    } catch (error) { console.error('Load categories error:', error); }
 }
 
+function populateCategoryFilter() {
+    const select = document.getElementById('categoryFilter');
+    if (!select) return;
+    const uniqueCategories = [...new Set(allProducts.map(p => p.category_name).filter(Boolean))];
+    select.innerHTML = '<option value="all">All Categories</option>' + 
+        uniqueCategories.map(cat => `<option value="${cat}">${cat}</option>`).join('');
+}
+
+function filterProducts() {
+    const searchTerm = document.getElementById('productSearch')?.value.toLowerCase() || '';
+    const statusFilter = document.getElementById('statusFilter')?.value || 'all';
+    const categoryFilter = document.getElementById('categoryFilter')?.value || 'all';
+
+    let filtered = allProducts;
+
+    if (searchTerm) filtered = filtered.filter(p => p.name.toLowerCase().includes(searchTerm));
+    if (statusFilter === 'active') filtered = filtered.filter(p => p.is_active);
+    else if (statusFilter === 'archived') filtered = filtered.filter(p => !p.is_active);
+    if (categoryFilter !== 'all') filtered = filtered.filter(p => p.category_name === categoryFilter);
+
+    renderProductsTable(filtered);
+}
+
+function renderProductsTable(products) {
+    const tbody = document.getElementById('productsTableBody');
+    const emptyState = document.getElementById('emptyProductsState');
+    const tableContainer = document.querySelector('#sellerProductsSection .table-container');
+    
+    if (!tbody) return;
+
+    if (!products || products.length === 0) {
+        tbody.innerHTML = '';
+        if (emptyState) emptyState.style.display = 'block';
+        if (tableContainer) tableContainer.style.display = 'none';
+        return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+    if (tableContainer) tableContainer.style.display = 'block';
+
+    tbody.innerHTML = products.map(p => `
+        <tr>
+            <td>${p.image_url ? `<img src="${p.image_url}" alt="${p.name}">` : `<div class="no-image"><i class="fas fa-box"></i></div>`}</td>
+            <td><strong>${p.name}</strong></td>
+            <td>${p.category_name || 'Uncategorized'}</td>
+            <td><strong>$${parseFloat(p.price).toFixed(2)}</strong></td>
+            <td><span style="color: ${p.stock_quantity < 5 ? '#dc2626' : 'inherit'}">${p.stock_quantity} ${p.stock_quantity < 5 ? '⚠️' : ''}</span></td>
+            <td><span class="status-badge ${p.is_active ? 'status-active' : 'status-inactive'}">${p.is_active ? 'Active' : 'Archived'}</span></td>
+            <td>
+                <div class="action-btns">
+                    <button class="btn btn-outline btn-sm btn-icon" onclick='editProduct(${JSON.stringify(p).replace(/'/g, "&#39;")})'><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-outline btn-sm btn-icon" style="color: #dc2626; border-color: #fecaca;" onclick="deleteProduct(${p.id})"><i class="fas fa-trash"></i></button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// --- PRODUCT MODAL & UPLOADS ---
 function openProductModal(product = null) {
     const modal = document.getElementById('productModal');
     const form = document.getElementById('productForm');
+    if (!modal || !form) return;
+    
     form.reset();
     document.getElementById('productId').value = '';
     document.getElementById('modalTitle').textContent = 'Add New Product';
@@ -227,10 +358,40 @@ function openProductModal(product = null) {
 }
 
 function closeProductModal() {
-    document.getElementById('productModal').classList.remove('active');
+    const modal = document.getElementById('productModal');
+    if (modal) modal.classList.remove('active');
 }
 
-document.getElementById('productForm').addEventListener('submit', async (e) => {
+async function handleProductImageUpload(input) {
+    if (input.files && input.files[0]) {
+        const formData = new FormData();
+        formData.append('file', input.files[0]);
+        document.getElementById('uploadText').textContent = 'Uploading...';
+        
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${API_URL}/upload-image`, {
+                method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData
+            });
+            const data = await res.json();
+            if (res.ok) {
+                uploadedProductImageUrl = data.url;
+                document.getElementById('prodImageUrl').value = data.url;
+                document.getElementById('productImagePreview').src = data.url;
+                document.getElementById('productImagePreview').style.display = 'block';
+                document.getElementById('uploadText').textContent = 'Change Image';
+            } else {
+                alert(data.detail || 'Upload failed');
+                document.getElementById('uploadText').textContent = 'Click to upload image';
+            }
+        } catch (error) {
+            alert('Network error during upload');
+            document.getElementById('uploadText').textContent = 'Click to upload image';
+        }
+    }
+}
+
+document.getElementById('productForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const token = localStorage.getItem('token');
     const productId = document.getElementById('productId').value;
@@ -249,19 +410,13 @@ document.getElementById('productForm').addEventListener('submit', async (e) => {
     const method = isEdit ? 'PUT' : 'POST';
 
     const btn = document.getElementById('saveProductBtn');
-    btn.disabled = true;
-    btn.textContent = 'Saving...';
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
 
     try {
         const res = await fetch(url, {
-            method,
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
+            method, headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-
         if (res.ok) {
             closeProductModal();
             await loadSellerData();
@@ -269,23 +424,18 @@ document.getElementById('productForm').addEventListener('submit', async (e) => {
             const err = await res.json();
             alert(err.detail || 'Failed to save product');
         }
-    } catch (error) {
-        alert('Network error');
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Save Product';
-    }
+    } catch (error) { alert('Network error'); } 
+    finally { if (btn) { btn.disabled = false; btn.textContent = 'Save Product'; } }
 });
 
 function editProduct(product) { openProductModal(product); }
 
 async function deleteProduct(productId) {
-    if (!confirm('Archive this product? It will be hidden from the storefront.')) return;
+    if (!confirm('Archive this product?')) return;
     const token = localStorage.getItem('token');
     try {
         const res = await fetch(`${API_URL}/seller/products/${productId}`, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${token}` }
+            method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` }
         });
         if (res.ok) await loadSellerData();
     } catch (error) { alert('Network error'); }
@@ -296,38 +446,58 @@ async function loadSellerProfile() {
     const token = localStorage.getItem('token');
     try {
         const res = await fetch(`${API_URL}/seller/profile`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) return;
         const profile = await res.json();
         
-        document.getElementById('displayBusinessName').textContent = profile.business_name || 'Unnamed Store';
-        document.getElementById('displayEmail').textContent = profile.email;
-        document.getElementById('profileBusinessName').value = profile.business_name || '';
-        document.getElementById('profileWebsite').value = profile.website || '';
-        document.getElementById('profileDescription').value = profile.business_description || '';
+        const elName = document.getElementById('displayBusinessName'); if(elName) elName.textContent = profile.business_name || 'Unnamed Store';
+        const elEmail = document.getElementById('displayEmail'); if(elEmail) elEmail.textContent = profile.email;
+        const elBusName = document.getElementById('profileBusinessName'); if(elBusName) elBusName.value = profile.business_name || '';
+        const elWeb = document.getElementById('profileWebsite'); if(elWeb) elWeb.value = profile.website || '';
+        const elDesc = document.getElementById('profileDescription'); if(elDesc) elDesc.value = profile.business_description || '';
         
         if (profile.logo_url) {
-            document.getElementById('profileLogoPreview').src = profile.logo_url;
+            const elLogo = document.getElementById('profileLogoPreview');
+            if(elLogo) elLogo.src = profile.logo_url;
             uploadedLogoUrl = profile.logo_url;
         }
         
         const badge = document.getElementById('verificationBadge');
-        if (profile.is_verified_seller) {
-            badge.textContent = 'Verified Seller';
-            badge.className = 'status-badge status-active';
-        } else {
-            badge.textContent = 'Pending Verification';
-            badge.className = 'status-badge status-inactive';
+        if (badge) {
+            if (profile.is_verified_seller) {
+                badge.textContent = 'Verified Seller';
+                badge.className = 'status-badge status-active';
+            } else {
+                badge.textContent = 'Pending Verification';
+                badge.className = 'status-badge status-inactive';
+            }
         }
-    } catch (error) {
-        console.error('Failed to load profile', error);
+    } catch (error) { console.error('Failed to load profile', error); }
+}
+
+async function handleLogoUpload(input) {
+    if (input.files && input.files[0]) {
+        const formData = new FormData();
+        formData.append('file', input.files[0]);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${API_URL}/upload-image`, {
+                method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: formData
+            });
+            const data = await res.json();
+            if (res.ok) {
+                uploadedLogoUrl = data.url;
+                const elLogo = document.getElementById('profileLogoPreview');
+                if(elLogo) elLogo.src = data.url;
+            } else { alert(data.detail || 'Upload failed'); }
+        } catch (error) { alert('Network error during upload'); }
     }
 }
 
-document.getElementById('profileForm').addEventListener('submit', async (e) => {
+document.getElementById('profileForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     const token = localStorage.getItem('token');
     const btn = document.getElementById('saveProfileBtn');
-    btn.disabled = true;
-    btn.textContent = 'Saving...';
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
 
     const payload = {
         business_name: document.getElementById('profileBusinessName').value,
@@ -338,94 +508,38 @@ document.getElementById('profileForm').addEventListener('submit', async (e) => {
 
     try {
         const res = await fetch(`${API_URL}/seller/profile`, {
-            method: 'PUT',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
+            method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-
-        if (res.ok) {
-            alert('Profile updated successfully!');
-            loadSellerProfile(); // Refresh display
-        } else {
-            const err = await res.json();
-            alert(err.detail || 'Failed to update profile');
-        }
-    } catch (error) {
-        alert('Network error');
-    } finally {
-        btn.disabled = false;
-        btn.textContent = 'Save Changes';
-    }
+        if (res.ok) { alert('Profile updated successfully!'); loadSellerProfile(); } 
+        else { const err = await res.json(); alert(err.detail || 'Failed to update profile'); }
+    } catch (error) { alert('Network error'); } 
+    finally { if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; } }
 });
-
-// --- SHARED UTILS ---
-async function loadSellerData() {
-    const token = localStorage.getItem('token');
-    const headers = { 'Authorization': `Bearer ${token}` };
-    const statsRes = await fetch(`${API_URL}/dashboard/stats`, { headers });
-    const stats = await statsRes.json();
-    document.getElementById('statActiveProducts').textContent = stats.active_products;
-    document.getElementById('statLowStock').textContent = stats.low_stock;
-    document.getElementById('statInventoryValue').textContent = `$${parseFloat(stats.inventory_value).toFixed(2)}`;
-
-    const productsRes = await fetch(`${API_URL}/seller/products`, { headers });
-    renderProductsTable(await productsRes.json());
-}
-
-function renderProductsTable(products) {
-    const tbody = document.getElementById('productsTableBody');
-    if (!tbody) return;
-    if (products.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding: 40px;">No products found.</td></tr>';
-        return;
-    }
-    tbody.innerHTML = products.map(p => `
-        <tr>
-            <td><strong>${p.name}</strong></td>
-            <td>${p.category_name || 'Uncategorized'}</td>
-            <td>$${parseFloat(p.price).toFixed(2)}</td>
-            <td style="color: ${p.stock_quantity < 5 ? '#dc2626' : 'inherit'}">${p.stock_quantity} ${p.stock_quantity < 5 ? '⚠️' : ''}</td>
-            <td><span class="status-badge ${p.is_active ? 'status-active' : 'status-inactive'}">${p.is_active ? 'Active' : 'Archived'}</span></td>
-            <td>
-                <div class="action-btns">
-                    <button class="btn btn-outline btn-sm btn-icon" onclick='editProduct(${JSON.stringify(p).replace(/'/g, "&#39;")})'><i class="fas fa-edit"></i></button>
-                    <button class="btn btn-outline btn-sm btn-icon" style="color: #dc2626; border-color: #fecaca;" onclick="deleteProduct(${p.id})"><i class="fas fa-trash"></i></button>
-                </div>
-            </td>
-        </tr>
-    `).join('');
-}
 
 // --- SELLER ORDERS ---
 async function loadSellerOrders() {
     const token = localStorage.getItem('token');
-    const statusFilter = document.getElementById('orderStatusFilter').value;
+    const statusFilter = document.getElementById('orderStatusFilter')?.value || 'all';
     
     try {
-        const res = await fetch(`${API_URL}/seller/orders?status=${statusFilter}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const res = await fetch(`${API_URL}/seller/orders?status=${statusFilter}`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res.ok) {
+            const orders = await res.json();
+            renderOrdersTable(orders);
+        }
         
-        if (!res.ok) throw new Error('Failed to load orders');
-        const orders = await res.json();
-        
-        // Load stats (always fetch all for stats)
-        const allOrdersRes = await fetch(`${API_URL}/seller/orders`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        const allOrders = await allOrdersRes.json();
-        renderOrdersStats(allOrders);
-        
-        renderOrdersTable(orders);
-    } catch (error) {
-        console.error('Error loading orders:', error);
-    }
+        const allOrdersRes = await fetch(`${API_URL}/seller/orders`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (allOrdersRes.ok) {
+            renderOrdersStats(await allOrdersRes.json());
+        }
+    } catch (error) { console.error('Error loading orders:', error); }
 }
 
 function renderOrdersStats(orders) {
+    const grid = document.getElementById('ordersStatsGrid');
+    if (!grid) return;
+    
     const stats = {
         pending: orders.filter(o => o.status === 'pending').length,
         processing: orders.filter(o => o.status === 'processing').length,
@@ -433,62 +547,40 @@ function renderOrdersStats(orders) {
         delivered: orders.filter(o => o.status === 'delivered').length
     };
     
-    document.getElementById('ordersStatsGrid').innerHTML = `
-        <div class="order-stat-card pending">
-            <h4>Pending</h4>
-            <p>${stats.pending}</p>
-        </div>
-        <div class="order-stat-card processing">
-            <h4>Processing</h4>
-            <p>${stats.processing}</p>
-        </div>
-        <div class="order-stat-card shipped">
-            <h4>Shipped</h4>
-            <p>${stats.shipped}</p>
-        </div>
-        <div class="order-stat-card delivered">
-            <h4>Delivered</h4>
-            <p>${stats.delivered}</p>
-        </div>
+    grid.innerHTML = `
+        <div class="order-stat-card pending"><h4>Pending</h4><p>${stats.pending}</p></div>
+        <div class="order-stat-card processing"><h4>Processing</h4><p>${stats.processing}</p></div>
+        <div class="order-stat-card shipped"><h4>Shipped</h4><p>${stats.shipped}</p></div>
+        <div class="order-stat-card delivered"><h4>Delivered</h4><p>${stats.delivered}</p></div>
     `;
 }
 
 function renderOrdersTable(orders) {
     const tbody = document.getElementById('ordersTableBody');
     const emptyState = document.getElementById('emptyOrdersState');
+    const tableContainer = document.querySelector('#sellerOrdersSection .table-container');
     
     if (!tbody) return;
     
-    if (orders.length === 0) {
+    if (!orders || orders.length === 0) {
         tbody.innerHTML = '';
-        emptyState.style.display = 'block';
-        document.querySelector('#sellerOrdersSection .table-container').style.display = 'none';
+        if (emptyState) emptyState.style.display = 'block';
+        if (tableContainer) tableContainer.style.display = 'none';
         return;
     }
     
-    emptyState.style.display = 'none';
-    document.querySelector('#sellerOrdersSection .table-container').style.display = 'block';
+    if (emptyState) emptyState.style.display = 'none';
+    if (tableContainer) tableContainer.style.display = 'block';
     
     tbody.innerHTML = orders.map(order => `
         <tr>
             <td><strong>#${order.id}</strong></td>
-            <td>
-                <div>${order.buyer_name}</div>
-                <div style="font-size: 0.8rem; color: var(--text-muted);">${order.buyer_email}</div>
-            </td>
+            <td><div>${order.buyer_name}</div><div style="font-size: 0.8rem; color: var(--text-muted);">${order.buyer_email}</div></td>
             <td>${order.items_count} item${order.items_count > 1 ? 's' : ''}</td>
             <td><strong>$${parseFloat(order.total_amount).toFixed(2)}</strong></td>
-            <td>
-                <span class="status-badge status-${order.status}">
-                    ${order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                </span>
-            </td>
+            <td><span class="status-badge status-${order.status}">${order.status.charAt(0).toUpperCase() + order.status.slice(1)}</span></td>
             <td>${new Date(order.created_at).toLocaleDateString()}</td>
-            <td>
-                <button class="btn btn-outline btn-sm" onclick="viewOrderDetails(${order.id})">
-                    <i class="fas fa-eye"></i> View
-                </button>
-            </td>
+            <td><button class="btn btn-outline btn-sm" onclick="viewOrderDetails(${order.id})"><i class="fas fa-eye"></i> View</button></td>
         </tr>
     `).join('');
 }
@@ -497,68 +589,40 @@ async function viewOrderDetails(orderId) {
     const token = localStorage.getItem('token');
     const modal = document.getElementById('orderDetailModal');
     const content = document.getElementById('orderDetailContent');
+    if (!modal || !content) return;
     
     content.innerHTML = '<div style="text-align: center; padding: 40px;"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
     modal.classList.add('active');
     
     try {
-        const res = await fetch(`${API_URL}/seller/orders/${orderId}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
+        const res = await fetch(`${API_URL}/seller/orders/${orderId}`, { headers: { 'Authorization': `Bearer ${token}` } });
         if (!res.ok) throw new Error('Failed to load order');
         const data = await res.json();
         
         const order = data.order;
         const items = data.items;
         
-        document.getElementById('orderModalTitle').textContent = `Order #${order.id}`;
+        const title = document.getElementById('orderModalTitle');
+        if (title) title.textContent = `Order #${order.id}`;
         
         content.innerHTML = `
             <div class="order-info-grid">
-                <div class="order-info-block">
-                    <h5>Customer</h5>
-                    <p>${order.buyer_name}</p>
-                    <p style="font-size: 0.85rem; color: var(--text-muted);">${order.buyer_email}</p>
-                    ${order.buyer_phone ? `<p style="font-size: 0.85rem; color: var(--text-muted);">${order.buyer_phone}</p>` : ''}
-                </div>
-                <div class="order-info-block">
-                    <h5>Status</h5>
-                    <span class="status-badge status-${order.status}" style="font-size: 0.9rem; padding: 6px 12px;">
-                        ${order.status.charAt(0).toUpperCase() + order.status.slice(1)}
-                    </span>
-                </div>
-                <div class="order-info-block">
-                    <h5>Order Date</h5>
-                    <p>${new Date(order.created_at).toLocaleString()}</p>
-                </div>
-                <div class="order-info-block">
-                    <h5>Total Amount</h5>
-                    <p style="color: var(--primary); font-size: 1.2rem; font-weight: 700;">$${parseFloat(order.total_amount).toFixed(2)}</p>
-                </div>
-                <div class="order-info-block" style="grid-column: 1 / -1;">
-                    <h5>Shipping Address</h5>
-                    <p>${order.shipping_address}</p>
-                </div>
+                <div class="order-info-block"><h5>Customer</h5><p>${order.buyer_name}</p><p style="font-size: 0.85rem; color: var(--text-muted);">${order.buyer_email}</p>${order.buyer_phone ? `<p style="font-size: 0.85rem; color: var(--text-muted);">${order.buyer_phone}</p>` : ''}</div>
+                <div class="order-info-block"><h5>Status</h5><span class="status-badge status-${order.status}" style="font-size: 0.9rem; padding: 6px 12px;">${order.status.charAt(0).toUpperCase() + order.status.slice(1)}</span></div>
+                <div class="order-info-block"><h5>Order Date</h5><p>${new Date(order.created_at).toLocaleString()}</p></div>
+                <div class="order-info-block"><h5>Total Amount</h5><p style="color: var(--primary); font-size: 1.2rem; font-weight: 700;">$${parseFloat(order.total_amount).toFixed(2)}</p></div>
+                <div class="order-info-block" style="grid-column: 1 / -1;"><h5>Shipping Address</h5><p>${order.shipping_address}</p></div>
             </div>
-            
             <div class="order-items-list">
                 <h4>Items (${items.length})</h4>
                 ${items.map(item => `
                     <div class="order-item-row">
-                        ${item.image_url 
-                            ? `<img src="${item.image_url}" alt="${item.name}">`
-                            : `<div class="no-img"><i class="fas fa-box"></i></div>`
-                        }
-                        <div class="order-item-info">
-                            <h5>${item.name}</h5>
-                            <p>Qty: ${item.quantity} × $${parseFloat(item.price_at_purchase).toFixed(2)}</p>
-                        </div>
+                        ${item.image_url ? `<img src="${item.image_url}" alt="${item.name}">` : `<div class="no-img"><i class="fas fa-box"></i></div>`}
+                        <div class="order-item-info"><h5>${item.name}</h5><p>Qty: ${item.quantity} × $${parseFloat(item.price_at_purchase).toFixed(2)}</p></div>
                         <div class="order-item-price">$${(item.quantity * item.price_at_purchase).toFixed(2)}</div>
                     </div>
                 `).join('')}
             </div>
-            
             <div class="order-status-selector">
                 <label>Update Status:</label>
                 <select id="newOrderStatus">
@@ -578,167 +642,31 @@ async function viewOrderDetails(orderId) {
 
 async function updateOrderStatus(orderId) {
     const token = localStorage.getItem('token');
-    const newStatus = document.getElementById('newOrderStatus').value;
+    const newStatus = document.getElementById('newOrderStatus')?.value;
+    if (!newStatus) return;
     
     try {
         const res = await fetch(`${API_URL}/seller/orders/${orderId}/status`, {
-            method: 'PUT',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
+            method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: newStatus })
         });
-        
         if (res.ok) {
             alert('Order status updated successfully!');
             closeOrderModal();
-            loadSellerOrders(); // Refresh the table
+            loadSellerOrders();
         } else {
             const err = await res.json();
             alert(err.detail || 'Failed to update status');
         }
-    } catch (error) {
-        alert('Network error');
-    }
+    } catch (error) { alert('Network error'); }
 }
 
 function closeOrderModal() {
-    document.getElementById('orderDetailModal').classList.remove('active');
+    const modal = document.getElementById('orderDetailModal');
+    if (modal) modal.classList.remove('active');
 }
 
-// --- NOTIFICATIONS ---
-async function loadNotifications() {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    
-    try {
-        const res = await fetch(`${API_URL}/notifications`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        // If unauthorized, don't throw - just return silently
-        if (res.status === 401) {
-            console.warn('Notifications: Unauthorized (token may be expired)');
-            return;
-        }
-        
-        if (!res.ok) {
-            console.warn('Notifications: Failed to load');
-            return;
-        }
-        
-        const notifs = await res.json();
-        
-        const unreadCount = notifs.filter(n => !n.is_read).length;
-        const badge = document.getElementById('notifBadge');
-        
-        if (badge) {
-            if (unreadCount > 0) {
-                badge.textContent = unreadCount;
-                badge.style.display = 'flex';
-            } else {
-                badge.style.display = 'none';
-            }
-        }
-
-        const list = document.getElementById('notifList');
-        if (list) {
-            if (notifs.length === 0) {
-                list.innerHTML = '<p style="padding: 20px; text-align: center; color: var(--text-muted);">No notifications</p>';
-            } else {
-                list.innerHTML = notifs.map(n => `
-                    <div class="notif-item ${!n.is_read ? 'unread' : ''}" onclick="markAsRead(${n.id})">
-                        <h5>${n.title}</h5>
-                        <p>${n.message}</p>
-                        <div class="time">${new Date(n.created_at).toLocaleDateString()}</div>
-                    </div>
-                `).join('');
-            }
-        }
-    } catch (error) {
-        // Silent fail - notifications are not critical
-        console.warn('Notification loading error:', error);
-    }
-}
-
-// Bell icon click handler
-const notifBtn = document.getElementById('notifBtn');
-if (notifBtn) {
-    notifBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const dropdown = document.getElementById('notifDropdown');
-        if (dropdown) {
-            dropdown.classList.toggle('active');
-            
-            // Load notifications when opening
-            if (dropdown.classList.contains('active')) {
-                await loadNotifications();
-            }
-        }
-    });
-}
-
-// Close dropdown when clicking outside
-document.addEventListener('click', (e) => {
-    const dropdown = document.getElementById('notifDropdown');
-    const bell = document.getElementById('notifBtn');
-    
-    if (dropdown && bell && !dropdown.contains(e.target) && !bell.contains(e.target)) {
-        dropdown.classList.remove('active');
-    }
-});
-
-// Mark single notification as read
-async function markAsRead(notifId) {
-    const token = localStorage.getItem('token');
-    if (!token) return;
-    
-    try {
-        await fetch(`${API_URL}/notifications/${notifId}/read`, {
-            method: 'PUT',
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        await loadNotifications();
-    } catch (error) {
-        console.warn('Failed to mark notification as read:', error);
-    }
-}
-
-// Mark all notifications as read
-const markAllReadBtn = document.getElementById('markAllRead');
-if (markAllReadBtn) {
-    markAllReadBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const token = localStorage.getItem('token');
-        if (!token) return;
-        
-        try {
-            const res = await fetch(`${API_URL}/notifications`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            
-            if (!res.ok) return;
-            
-            const notifs = await res.json();
-            
-            // Mark all unread as read
-            for (const n of notifs) {
-                if (!n.is_read) {
-                    await fetch(`${API_URL}/notifications/${n.id}/read`, {
-                        method: 'PUT',
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                }
-            }
-            
-            await loadNotifications();
-        } catch (error) {
-            console.warn('Failed to mark all as read:', error);
-        }
-    });
-}
-
+// --- UTILS ---
 function logout() {
     localStorage.removeItem('token');
     localStorage.removeItem('userType');

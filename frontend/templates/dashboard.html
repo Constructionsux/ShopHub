@@ -29,11 +29,16 @@
                         </div>
                     </div>
                 </div>
-                <div class="user-profile">
-                    <div class="avatar" id="userAvatar">U</div>
-                    <span id="userName">User</span>
-                    <button class="btn-outline-sm" onclick="logout()">Logout</button>
-                </div>
+           <div class="user-profile">
+    <div class="avatar" id="userAvatar">U</div>
+    <div style="display: flex; flex-direction: column; align-items: flex-start;">
+        <span id="userName" style="font-weight: 600; font-size: 0.9rem;">User</span>
+        <span id="userRole" style="font-size: 0.75rem; color: var(--text-muted); text-transform: capitalize;">Role</span>
+    </div>
+    <button class="btn btn-outline btn-sm" onclick="logout()" style="margin-left: 10px;">
+        <i class="fas fa-sign-out-alt"></i> Logout
+    </button>
+</div>
             </div>
         </div>
     </nav>
@@ -77,6 +82,50 @@
                 </div>
             </div>
 
+            <!-- Seller Profile Section -->
+<div class="content-section" id="sellerProfileSection" style="display: none;">
+    <div class="section-header">
+        <h3>Store Profile</h3>
+    </div>
+    <form id="profileForm" class="profile-form">
+        <div class="profile-header-row">
+            <div class="logo-upload-container">
+                <img id="profileLogoPreview" src="https://via.placeholder.com/100" alt="Logo" class="logo-preview">
+                <label for="logoUpload" class="btn btn-outline btn-sm" style="margin-top: 10px; cursor: pointer;">
+                    <i class="fas fa-camera"></i> Change Logo
+                </label>
+                <input type="file" id="logoUpload" accept="image/*" style="display: none;" onchange="handleLogoUpload(this)">
+            </div>
+            <div class="profile-info-display">
+                <h2 id="displayBusinessName">Your Business Name</h2>
+                <p id="displayEmail" style="color: var(--text-muted);">email@example.com</p>
+                <div class="badge-container">
+                    <span class="status-badge status-active" id="verificationBadge">Unverified</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Business Name</label>
+                <input type="text" id="profileBusinessName" required>
+            </div>
+            <div class="form-group">
+                <label>Website (Optional)</label>
+                <input type="url" id="profileWebsite" placeholder="https://yourstore.com">
+            </div>
+        </div>
+        <div class="form-group">
+            <label>Business Description</label>
+            <textarea id="profileDescription" rows="4" placeholder="Tell buyers about your store..."></textarea>
+        </div>
+        
+        <div class="modal-actions" style="justify-content: flex-start; margin-top: 20px;">
+            <button type="submit" class="btn btn-primary" id="saveProfileBtn">Save Changes</button>
+        </div>
+    </form>
+</div>
+
             <!-- Product Management Section (Seller Only) -->
             <div class="content-section" id="sellerProductsSection" style="display: none;">
                 <div class="section-header">
@@ -117,47 +166,61 @@
     </div>
 
     <!-- Add/Edit Product Modal -->
-    <div class="modal-overlay" id="productModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modalTitle">Add New Product</h3>
-                <button class="close-btn" onclick="closeProductModal()">&times;</button>
-            </div>
-            <form id="productForm">
-                <input type="hidden" id="productId">
-                <div class="form-group">
-                    <label>Product Name</label>
-                    <input type="text" id="prodName" required>
+<div class="modal-overlay" id="productModal">
+    <div class="modal-content product-modal">
+        <div class="modal-header">
+            <h3 id="modalTitle">Add New Product</h3>
+            <button class="close-btn" onclick="closeProductModal()">&times;</button>
+        </div>
+        <form id="productForm" class="product-form">
+            <input type="hidden" id="productId">
+            
+            <div class="form-group">
+                <label>Product Image</label>
+                <div class="image-upload-box">
+                    <img id="productImagePreview" src="" alt="Preview" style="display: none; max-height: 150px; border-radius: 8px; margin-bottom: 10px;">
+                    <label for="productImageFile" class="upload-label">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <span id="uploadText">Click to upload image</span>
+                    </label>
+                    <input type="file" id="productImageFile" accept="image/*" style="display: none;" onchange="handleProductImageUpload(this)">
                 </div>
+                <input type="hidden" id="prodImageUrl">
+            </div>
+
+            <div class="form-group">
+                <label>Product Name</label>
+                <input type="text" id="prodName" required placeholder="e.g., Wireless Headphones">
+            </div>
+
+            <div class="form-row">
                 <div class="form-group">
                     <label>Category</label>
                     <select id="prodCategory" required></select>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Price ($)</label>
-                        <input type="number" id="prodPrice" step="0.01" min="0" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Stock Quantity</label>
-                        <input type="number" id="prodStock" min="0" required>
-                    </div>
-                </div>
                 <div class="form-group">
-                    <label>Description</label>
-                    <textarea id="prodDesc" rows="3" required></textarea>
+                    <label>Price ($)</label>
+                    <input type="number" id="prodPrice" step="0.01" min="0" required placeholder="0.00">
                 </div>
-                <div class="form-group">
-                    <label>Image URL (Optional)</label>
-                    <input type="url" id="prodImage" placeholder="https://example.com/image.jpg">
-                </div>
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-outline" onclick="closeProductModal()">Cancel</button>
-                    <button type="submit" class="btn btn-primary" id="saveProductBtn">Save Product</button>
-                </div>
-            </form>
-        </div>
+            </div>
+
+            <div class="form-group">
+                <label>Stock Quantity</label>
+                <input type="number" id="prodStock" min="0" required placeholder="0">
+            </div>
+
+            <div class="form-group">
+                <label>Description</label>
+                <textarea id="prodDesc" rows="3" required placeholder="Describe your product..."></textarea>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-outline" onclick="closeProductModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="saveProductBtn">Save Product</button>
+            </div>
+        </form>
     </div>
+</div>
 
     <script src="/static/js/dashboard.js"></script>
 </body>

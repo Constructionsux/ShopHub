@@ -67,6 +67,14 @@ class VerifyRequest(BaseModel):
 
 class ResendCodeRequest(BaseModel):
     email: EmailStr
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
     
 class ProductCreate(BaseModel):
     name: str
@@ -125,6 +133,14 @@ async def serve_verify(request: Request, email: str = ""): return templates.Temp
 @app.get("/dashboard", response_class=HTMLResponse)
 async def serve_dashboard(request: Request): return templates.TemplateResponse("dashboard.html", {"request": request})
 
+@app.get("/forgot-password", response_class=HTMLResponse)
+async def serve_forgot_password(request: Request):
+    return templates.TemplateResponse("forgot-password.html", {"request": request})
+
+@app.get("/reset-password", response_class=HTMLResponse)
+async def serve_reset_password(request: Request, email: str = ""):
+    return templates.TemplateResponse("reset-password.html", {"request": request, "email": email})
+    
 @app.post("/api/register")
 async def register_user(data: RegisterRequest, db=Depends(get_db)):
     existing = await db.fetchrow("SELECT id FROM users WHERE email = $1", data.email)
@@ -249,6 +265,76 @@ async def resend_verification_code(data: ResendCodeRequest, db=Depends(get_db)):
     await send_verification_email(data.email, new_code)
     
     return {"message": "New verification code sent. Please check your email."}
+
+
+@app.post("/api/forgot-password")
+async def forgot_password(data: ForgotPasswordRequest, db=Depends(get_db)):
+    # 1. Check if user exists and is verified
+    user = await db.fetchrow(
+        "SELECT id, email, is_verified FROM users WHERE email = $1", 
+        data.email
+    )
+    
+    # Security: Don't reveal if email exists or not. Always return success message.
+    if not user or not user["is_verified"]:
+        return {"message": "If an account with this email exists and is verified, a reset code has been sent."}
+    
+    # 2. Generate new reset code
+    reset_code = generate_verification_code()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+    
+    # 3. Update database
+    await db.execute(
+        "UPDATE users SET reset_code = $1, reset_code_expires = $2 WHERE id = $3",
+        reset_code, expires_at, user["id"]
+    )
+    
+    # 4. Send email
+    await send_password_reset_email(data.email, reset_code)
+    
+    # 5. Log security event
+    await db.execute(
+        "INSERT INTO security_logs (user_id, event_type, severity, description) VALUES ($1, 'password_reset_requested', 'info', 'Password reset code generated')",
+        user["id"]
+    )
+    
+    return {"message": "If an account with this email exists, a reset code has been sent."}
+
+@app.post("/api/reset-password")
+async def reset_password(data: ResetPasswordRequest, db=Depends(get_db)):
+    # 1. Fetch user with reset data
+    user = await db.fetchrow(
+        "SELECT id, reset_code, reset_code_expires FROM users WHERE email = $1",
+        data.email
+    )
+    
+    if not user or not user["reset_code"]:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset request")
+    
+    # 2. Verify code
+    if user["reset_code"] != data.code:
+        raise HTTPException(status_code=400, detail="Invalid reset code")
+    
+    # 3. Check expiration (timezone-aware)
+    if datetime.now(timezone.utc) > user["reset_code_expires"]:
+        raise HTTPException(status_code=400, detail="Reset code has expired")
+    
+    # 4. Update password and clear reset code
+    new_hash = get_password_hash(data.new_password)
+    await db.execute(
+        """UPDATE users 
+           SET password_hash = $1, reset_code = NULL, reset_code_expires = NULL 
+           WHERE id = $2""",
+        new_hash, user["id"]
+    )
+    
+    # 5. Log security event
+    await db.execute(
+        "INSERT INTO security_logs (user_id, event_type, severity, description) VALUES ($1, 'password_reset_success', 'warning', 'Password was successfully reset')",
+        user["id"]
+    )
+    
+    return {"message": "Password reset successfully. You can now log in."}
     
 @app.get("/api/me")
 async def get_me(current_user: dict = Depends(get_current_user)):

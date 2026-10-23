@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from jose import jwt, JWTError
 import os
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.database import lifespan, get_db
 from backend.utils import (

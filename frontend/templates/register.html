@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - ShopHub</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/auth.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <a href="/" class="logo" style="justify-content: center; margin-bottom: 20px;">
+                    <i class="fas fa-store"></i>
+                    <span>Shop<span class="highlight">Hub</span></span>
+                </a>
+                <h2>Create Account</h2>
+                <p>Join our marketplace today</p>
+            </div>
+
+            <div id="errorMsg" class="error-message"></div>
+            <div id="successMsg" class="success-message"></div>
+
+            <form id="registerForm">
+                <div class="form-group">
+                    <label>Full Name</label>
+                    <input type="text" id="fullName" required placeholder="John Doe">
+                </div>
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="email" id="email" required placeholder="john@example.com">
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" id="password" required placeholder="••••••••" minlength="8">
+                </div>
+                <div class="form-group">
+                    <label>Account Type</label>
+                    <select id="userType" required>
+                        <option value="buyer">Buyer (I want to shop)</option>
+                        <option value="seller">Seller (I want to sell)</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary auth-btn" id="submitBtn">
+                    Create Account
+                </button>
+            </form>
+
+            <div class="auth-footer">
+                Already have an account? <a href="/login">Log in</a>
+            </div>
+        </div>
+    </div>
+    <script src="/static/js/auth.js"></script>
+</body>
+</html>

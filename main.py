@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, Header
+from fastapi import FastAPI, Request, Depends, HTTPException, Header, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -10,12 +10,16 @@ from jose import jwt, JWTError
 import os
 from fastapi.middleware.cors import CORSMiddleware
 from collections import defaultdict
+import cloudinary
+import cloudinary.uploader
+from cloudinary.utils import cloudinary_url
 
 from backend.database import lifespan, get_db
 from backend.utils import (
     get_password_hash, verify_password, create_access_token,
     generate_verification_code, send_verification_email, send_security_alert_email
 )
+
 
 # Initialize FastAPI
 app = FastAPI(
@@ -46,6 +50,13 @@ templates = Jinja2Templates(directory=BASE_DIR / "frontend" / "templates")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "fallback-secret")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
+
+
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET")
+)
 
 # --- Pydantic Models ---
 class RegisterRequest(BaseModel):
@@ -106,7 +117,11 @@ class CheckoutRequest(BaseModel):
     zip_code: str
     phone: str
 
-
+class SellerProfileUpdate(BaseModel):
+    business_name: Optional[str] = None
+    business_description: Optional[str] = None
+    website: Optional[str] = None
+    logo_url: Optional[str] = None
 
 # --- Auth Dependencies ---
 async def get_current_user(authorization: Optional[str] = Header(None), db=Depends(get_db)):
@@ -626,6 +641,58 @@ async def process_checkout(data: CheckoutRequest, current_user: dict = Depends(r
         )
 
     return {"order_ids": created_orders, "message": "Checkout successful!"}
+
+
+# --- IMAGE UPLOAD ROUTE ---
+@app.post("/api/upload-image")
+async def upload_image(file: UploadFile = File(...)):
+    # Validate file type
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="File must be an image")
+    
+    try:
+        # Upload to Cloudinary
+        upload_result = cloudinary.uploader.upload(
+            file.file,
+            folder="shophub_products",
+            resource_type="image"
+        )
+        return {"url": upload_result["secure_url"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
+
+@app.get("/api/seller/profile")
+async def get_seller_profile(current_user: dict = Depends(require_seller), db=Depends(get_db)):
+    profile = await db.fetchrow(
+        """SELECT sp.business_name, sp.business_description, sp.rating, sp.total_sales, sp.is_verified_seller, sp.logo_url, sp.website, u.email, u.full_name, u.phone
+           FROM seller_profiles sp
+           JOIN users u ON sp.user_id = u.id
+           WHERE sp.user_id = $1""",
+        current_user["id"]
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return dict(profile)
+
+@app.put("/api/seller/profile")
+async def update_seller_profile(data: SellerProfileUpdate, current_user: dict = Depends(require_seller), db=Depends(get_db)):
+    # Build dynamic update query
+    update_fields = []
+    values = []
+    idx = 1
+    for field, value in data.dict(exclude_unset=True).items():
+        update_fields.append(f"{field} = ${idx}")
+        values.append(value)
+        idx += 1
+    
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    values.append(current_user["id"])
+    query = f"UPDATE seller_profiles SET {', '.join(update_fields)} WHERE user_id = ${idx}"
+    await db.execute(query, *values)
+    
+    return {"message": "Profile updated successfully"}
     
 
 if __name__ == "__main__":

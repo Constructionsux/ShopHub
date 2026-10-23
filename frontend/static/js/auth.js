@@ -107,7 +107,7 @@ if (loginForm) {
             if (res.ok) {
                 localStorage.setItem('token', data.access_token);
                 localStorage.setItem('userType', data.user_type);
-                window.location.href = '/'; // Redirect to dashboard/home
+                window.location.href = '/dashboard'; // Redirect to dashboard/home
             } else {
                 showError(data.detail || 'Login failed');
             }

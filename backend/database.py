@@ -17,7 +17,8 @@ async def lifespan(app: FastAPI):
         DATABASE_URL, 
         min_size=5, 
         max_size=20,
-        command_timeout=60
+        command_timeout=60,
+        ssl="require"
     )
     yield
     await pool.close()

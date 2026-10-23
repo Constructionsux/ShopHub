@@ -127,16 +127,13 @@ async def serve_dashboard(request: Request): return templates.TemplateResponse("
 
 @app.post("/api/register")
 async def register_user(data: RegisterRequest, db=Depends(get_db)):
-    # 1. Check if user exists
     existing = await db.fetchrow("SELECT id FROM users WHERE email = $1", data.email)
-    if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+    if existing: raise HTTPException(status_code=400, detail="Email already registered")
 
-    # 2. Generate verification code (expires in 15 mins)
     verify_code = generate_verification_code()
-    expires_at = datetime.utcnow() + timedelta(minutes=15)
+    # ✅ FIXED: Use timezone-aware UTC datetime
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
 
-    # 3. Insert user
     user_id = await db.fetchval(
         """INSERT INTO users (email, password_hash, full_name, user_type, verification_code, verification_code_expires, is_verified, last_login_ip, last_login_location)
            VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8) RETURNING id""",
@@ -144,43 +141,33 @@ async def register_user(data: RegisterRequest, db=Depends(get_db)):
         verify_code, expires_at, data.ip_address, data.location
     )
 
-    # 4. Create profile
     profile_table = "seller_profiles" if data.user_type == "seller" else "buyer_profiles"
     await db.execute(f"INSERT INTO {profile_table} (user_id) VALUES ($1)", user_id)
-
-    # 5. Send Verification Email (Async, non-blocking)
     await send_verification_email(data.email, verify_code)
-
-    # 6. Log activity
-    await db.execute(
-        "INSERT INTO activity_logs (user_id, action, details, ip_address) VALUES ($1, $2, $3, $4)",
-        user_id, "register", f"New {data.user_type} registered", data.ip_address
-    )
-
-    return {"message": "Registration successful. Please check your email for the verification code."}
-
+    return {"message": "Registration successful. Please check your email."}
+    
 @app.post("/api/verify-email")
 async def verify_email(data: VerifyRequest, db=Depends(get_db)):
     user = await db.fetchrow(
-        "SELECT id, verification_code, verification_code_expires FROM users WHERE email = $1",
+        "SELECT id, verification_code, verification_code_expires FROM users WHERE email = $1", 
         data.email
     )
-    if not user:
+    if not user: 
         raise HTTPException(status_code=404, detail="User not found")
     
-    if user["verification_code"] != data.code:
-        raise HTTPException(status_code=400, detail="Invalid verification code")
+    if user["verification_code"] != data.code: 
+        raise HTTPException(status_code=400, detail="Invalid code")
     
-    if datetime.utcnow() > user["verification_code_expires"]:
-        raise HTTPException(status_code=400, detail="Verification code has expired")
+    # ✅ FIXED: Compare timezone-aware current time with PostgreSQL timestamp
+    if datetime.now(timezone.utc) > user["verification_code_expires"]:
+        raise HTTPException(status_code=400, detail="Code expired")
 
     # Mark as verified
     await db.execute(
-        "UPDATE users SET is_verified = TRUE, verification_code = NULL WHERE id = $1",
+        "UPDATE users SET is_verified = TRUE, verification_code = NULL WHERE id = $1", 
         user["id"]
     )
-
-    return {"message": "Email verified successfully. You can now log in."}
+    return {"message": "Email verified successfully. You can Login Now"}
 
 @app.post("/api/login")
 async def login_user(data: LoginRequest, db=Depends(get_db)):

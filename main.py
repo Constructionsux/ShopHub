@@ -223,50 +223,6 @@ async def login_user(data: LoginRequest, db=Depends(get_db)):
     
     return {"access_token": token, "token_type": "bearer", "user_type": user["user_type"]}
 
-
-# --- Auth API Routes ---
-@app.post("/api/register")
-async def register_user(data: RegisterRequest, db=Depends(get_db)):
-    existing = await db.fetchrow("SELECT id FROM users WHERE email = $1", data.email)
-    if existing: raise HTTPException(status_code=400, detail="Email already registered")
-
-    verify_code = generate_verification_code()
-    expires_at = datetime.utcnow() + timedelta(minutes=15)
-
-    user_id = await db.fetchval(
-        """INSERT INTO users (email, password_hash, full_name, user_type, verification_code, verification_code_expires, is_verified, last_login_ip, last_login_location)
-           VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8) RETURNING id""",
-        data.email, get_password_hash(data.password), data.full_name, data.user_type,
-        verify_code, expires_at, data.ip_address, data.location
-    )
-
-    profile_table = "seller_profiles" if data.user_type == "seller" else "buyer_profiles"
-    await db.execute(f"INSERT INTO {profile_table} (user_id) VALUES ($1)", user_id)
-    await send_verification_email(data.email, verify_code)
-    return {"message": "Registration successful. Please check your email."}
-
-@app.post("/api/verify-email")
-async def verify_email(data: VerifyRequest, db=Depends(get_db)):
-    user = await db.fetchrow("SELECT id, verification_code, verification_code_expires FROM users WHERE email = $1", data.email)
-    if not user: raise HTTPException(status_code=404, detail="User not found")
-    if user["verification_code"] != data.code: raise HTTPException(status_code=400, detail="Invalid code")
-    if datetime.utcnow() > user["verification_code_expires"]: raise HTTPException(status_code=400, detail="Code expired")
-
-    await db.execute("UPDATE users SET is_verified = TRUE, verification_code = NULL WHERE id = $1", user["id"])
-    return {"message": "Email verified successfully."}
-
-@app.post("/api/login")
-async def login_user(data: LoginRequest, db=Depends(get_db)):
-    user = await db.fetchrow("SELECT * FROM users WHERE email = $1", data.email)
-    if not user or not verify_password(data.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    if not user["is_verified"]:
-        raise HTTPException(status_code=403, detail="Please verify your email first.")
-
-    await db.execute("UPDATE users SET last_login_ip = $1, last_login_location = $2 WHERE id = $3", data.ip_address, data.location, user["id"])
-    token = create_access_token({"sub": str(user["id"]), "type": user["user_type"]})
-    return {"access_token": token, "token_type": "bearer", "user_type": user["user_type"]}
-
 @app.get("/api/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
     return current_user

@@ -577,6 +577,108 @@ function closeOrderModal() {
     document.getElementById('orderDetailModal').classList.remove('active');
 }
 
+// --- NOTIFICATIONS ---
+async function loadNotifications() {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    
+    try {
+        const res = await fetch(`${API_URL}/notifications`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!res.ok) return;
+        const notifs = await res.json();
+        
+        const unreadCount = notifs.filter(n => !n.is_read).length;
+        const badge = document.getElementById('notifBadge');
+        
+        if (unreadCount > 0) {
+            badge.textContent = unreadCount;
+            badge.style.display = 'flex';
+        } else {
+            badge.style.display = 'none';
+        }
+
+        const list = document.getElementById('notifList');
+        if (notifs.length === 0) {
+            list.innerHTML = '<p style="padding: 20px; text-align: center; color: var(--text-muted);">No notifications</p>';
+        } else {
+            list.innerHTML = notifs.map(n => `
+                <div class="notif-item ${!n.is_read ? 'unread' : ''}" onclick="markAsRead(${n.id})">
+                    <h5>${n.title}</h5>
+                    <p>${n.message}</p>
+                    <div class="time">${new Date(n.created_at).toLocaleDateString()}</div>
+                </div>
+            `).join('');
+        }
+    } catch (error) {
+        console.error('Failed to load notifications:', error);
+    }
+}
+
+// Bell icon click handler
+document.getElementById('notifBtn').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const dropdown = document.getElementById('notifDropdown');
+    dropdown.classList.toggle('active');
+    
+    // Load notifications when opening
+    if (dropdown.classList.contains('active')) {
+        await loadNotifications();
+    }
+});
+
+// Close dropdown when clicking outside
+document.addEventListener('click', (e) => {
+    const dropdown = document.getElementById('notifDropdown');
+    const bell = document.getElementById('notifBtn');
+    
+    if (!dropdown.contains(e.target) && !bell.contains(e.target)) {
+        dropdown.classList.remove('active');
+    }
+});
+
+// Mark single notification as read
+async function markAsRead(notifId) {
+    const token = localStorage.getItem('token');
+    try {
+        await fetch(`${API_URL}/notifications/${notifId}/read`, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        await loadNotifications();
+    } catch (error) {
+        console.error('Failed to mark notification as read:', error);
+    }
+}
+
+// Mark all notifications as read
+document.getElementById('markAllRead').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const token = localStorage.getItem('token');
+    
+    try {
+        const res = await fetch(`${API_URL}/notifications`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const notifs = await res.json();
+        
+        // Mark all unread as read
+        for (const n of notifs) {
+            if (!n.is_read) {
+                await fetch(`${API_URL}/notifications/${n.id}/read`, {
+                    method: 'PUT',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+            }
+        }
+        
+        await loadNotifications();
+    } catch (error) {
+        console.error('Failed to mark all as read:', error);
+    }
+});
 function logout() {
     localStorage.removeItem('token');
     localStorage.removeItem('userType');

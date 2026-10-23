@@ -10,3 +10,4 @@ python-dotenv==1.0.0
 fastapi-mail==1.4.1
 httpx==0.26.0
 argon2-cffi
+cloudinary==1.36.0

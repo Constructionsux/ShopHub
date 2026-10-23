@@ -1,14 +1,13 @@
-from fastapi import FastAPI, Request, Depends, HTTPException, Form
+from fastapi import FastAPI, Request, Depends, HTTPException, Header
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.middleware.cors import CORSMiddleware
-from pathlib import Path
-import os
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime, timedelta
-import httpx
+from pathlib import Path
+from jose import jwt, JWTError
+import os
 
 from backend.database import lifespan, get_db
 from backend.utils import (
@@ -43,6 +42,9 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "frontend" / "static"), na
 templates = Jinja2Templates(directory=BASE_DIR / "frontend" / "templates")
 
 
+SECRET_KEY = os.getenv("SECRET_KEY", "fallback-secret")
+ALGORITHM = os.getenv("ALGORITHM", "HS256")
+
 # --- Pydantic Models ---
 class RegisterRequest(BaseModel):
     full_name: str
@@ -62,22 +64,62 @@ class VerifyRequest(BaseModel):
     email: EmailStr
     code: str
 
-# --- Routes ---
+class ProductCreate(BaseModel):
+    name: str
+    description: str
+    price: float
+    stock_quantity: int
+    category_id: int
+    image_url: Optional[str] = None
+
+class ProductUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    price: Optional[float] = None
+    stock_quantity: Optional[int] = None
+    is_active: Optional[bool] = None
+
+
+
+# --- Auth Dependencies ---
+async def get_current_user(authorization: Optional[str] = Header(None), db=Depends(get_db)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    
+    token = authorization.split(" ")[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        
+        user = await db.fetchrow("SELECT id, email, full_name, user_type, is_verified FROM users WHERE id = $1", int(user_id))
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        return dict(user)
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+async def require_seller(current_user: dict = Depends(get_current_user)):
+    if current_user["user_type"] != "seller":
+        raise HTTPException(status_code=403, detail="Access denied: Sellers only")
+    return current_user
+
+# --- Page Routes ---
 @app.get("/", response_class=HTMLResponse)
-async def serve_landing(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def serve_landing(request: Request): return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/login", response_class=HTMLResponse)
-async def serve_login(request: Request):
-    return templates.TemplateResponse("login.html", {"request": request})
+async def serve_login(request: Request): return templates.TemplateResponse("login.html", {"request": request})
 
 @app.get("/register", response_class=HTMLResponse)
-async def serve_register(request: Request):
-    return templates.TemplateResponse("register.html", {"request": request})
+async def serve_register(request: Request): return templates.TemplateResponse("register.html", {"request": request})
 
 @app.get("/verify", response_class=HTMLResponse)
-async def serve_verify(request: Request, email: str = ""):
-    return templates.TemplateResponse("verify.html", {"request": request, "email": email})
+async def serve_verify(request: Request, email: str = ""): return templates.TemplateResponse("verify.html", {"request": request, "email": email})
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def serve_dashboard(request: Request): return templates.TemplateResponse("dashboard.html", {"request": request})
 
 @app.post("/api/register")
 async def register_user(data: RegisterRequest, db=Depends(get_db)):
@@ -180,6 +222,178 @@ async def login_user(data: LoginRequest, db=Depends(get_db)):
     token = create_access_token({"sub": str(user["id"]), "type": user["user_type"]})
     
     return {"access_token": token, "token_type": "bearer", "user_type": user["user_type"]}
+
+
+# --- Auth API Routes ---
+@app.post("/api/register")
+async def register_user(data: RegisterRequest, db=Depends(get_db)):
+    existing = await db.fetchrow("SELECT id FROM users WHERE email = $1", data.email)
+    if existing: raise HTTPException(status_code=400, detail="Email already registered")
+
+    verify_code = generate_verification_code()
+    expires_at = datetime.utcnow() + timedelta(minutes=15)
+
+    user_id = await db.fetchval(
+        """INSERT INTO users (email, password_hash, full_name, user_type, verification_code, verification_code_expires, is_verified, last_login_ip, last_login_location)
+           VALUES ($1, $2, $3, $4, $5, $6, FALSE, $7, $8) RETURNING id""",
+        data.email, get_password_hash(data.password), data.full_name, data.user_type,
+        verify_code, expires_at, data.ip_address, data.location
+    )
+
+    profile_table = "seller_profiles" if data.user_type == "seller" else "buyer_profiles"
+    await db.execute(f"INSERT INTO {profile_table} (user_id) VALUES ($1)", user_id)
+    await send_verification_email(data.email, verify_code)
+    return {"message": "Registration successful. Please check your email."}
+
+@app.post("/api/verify-email")
+async def verify_email(data: VerifyRequest, db=Depends(get_db)):
+    user = await db.fetchrow("SELECT id, verification_code, verification_code_expires FROM users WHERE email = $1", data.email)
+    if not user: raise HTTPException(status_code=404, detail="User not found")
+    if user["verification_code"] != data.code: raise HTTPException(status_code=400, detail="Invalid code")
+    if datetime.utcnow() > user["verification_code_expires"]: raise HTTPException(status_code=400, detail="Code expired")
+
+    await db.execute("UPDATE users SET is_verified = TRUE, verification_code = NULL WHERE id = $1", user["id"])
+    return {"message": "Email verified successfully."}
+
+@app.post("/api/login")
+async def login_user(data: LoginRequest, db=Depends(get_db)):
+    user = await db.fetchrow("SELECT * FROM users WHERE email = $1", data.email)
+    if not user or not verify_password(data.password, user["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not user["is_verified"]:
+        raise HTTPException(status_code=403, detail="Please verify your email first.")
+
+    await db.execute("UPDATE users SET last_login_ip = $1, last_login_location = $2 WHERE id = $3", data.ip_address, data.location, user["id"])
+    token = create_access_token({"sub": str(user["id"]), "type": user["user_type"]})
+    return {"access_token": token, "token_type": "bearer", "user_type": user["user_type"]}
+
+@app.get("/api/me")
+async def get_me(current_user: dict = Depends(get_current_user)):
+    return current_user
+
+# --- Dashboard & Product Management Routes (Seller) ---
+@app.get("/api/dashboard/stats")
+async def get_dashboard_stats(current_user: dict = Depends(require_seller), db=Depends(get_db)):
+    stats = await db.fetchrow(
+        """SELECT 
+            COUNT(*) FILTER (WHERE is_active = TRUE) as active_products,
+            COUNT(*) FILTER (WHERE stock_quantity < 5 AND is_active = TRUE) as low_stock,
+            COALESCE(SUM(price * stock_quantity), 0) as inventory_value
+           FROM products WHERE seller_id = $1""",
+        current_user["id"]
+    )
+    return dict(stats)
+
+@app.get("/api/seller/products")
+async def get_seller_products(current_user: dict = Depends(require_seller), db=Depends(get_db)):
+    products = await db.fetch(
+        """SELECT p.id, p.name, p.price, p.stock_quantity, p.is_active, c.name as category_name 
+           FROM products p 
+           LEFT JOIN categories c ON p.category_id = c.id 
+           WHERE p.seller_id = $1 
+           ORDER BY p.created_at DESC""",
+        current_user["id"]
+    )
+    return [dict(p) for p in products]
+
+@app.post("/api/seller/products")
+async def create_product(data: ProductCreate, current_user: dict = Depends(require_seller), db=Depends(get_db)):
+    product_id = await db.fetchval(
+        """INSERT INTO products (seller_id, category_id, name, description, price, stock_quantity, image_url, is_active)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE) RETURNING id""",
+        current_user["id"], data.category_id, data.name, data.description, data.price, data.stock_quantity, data.image_url
+    )
+    
+    # Trigger Notification
+    await db.execute(
+        """INSERT INTO notifications (user_id, title, message, type) 
+           VALUES ($1, $2, $3, $4)""",
+        current_user["id"], "Product Created", f"Your product '{data.name}' has been successfully listed.", "success"
+    )
+    
+    # Log Activity
+    await db.execute(
+        "INSERT INTO activity_logs (user_id, action, details) VALUES ($1, $2, $3)",
+        current_user["id"], "create_product", f"Created product: {data.name}"
+    )
+    
+    return {"id": product_id, "message": "Product created successfully"}
+
+@app.put("/api/seller/products/{product_id}")
+async def update_product(product_id: int, data: ProductUpdate, current_user: dict = Depends(require_seller), db=Depends(get_db)):
+    # Ensure seller owns this product
+    product = await db.fetchrow("SELECT id, name FROM products WHERE id = $1 AND seller_id = $2", product_id, current_user["id"])
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found or access denied")
+
+    # Build dynamic update query
+    update_fields = []
+    values = []
+    idx = 1
+    for field, value in data.dict(exclude_unset=True).items():
+        update_fields.append(f"{field} = ${idx}")
+        values.append(value)
+        idx += 1
+    
+    if not update_fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    values.append(product_id)
+    query = f"UPDATE products SET {', '.join(update_fields)} WHERE id = ${idx} RETURNING id"
+    await db.execute(query, *values)
+
+    await db.execute(
+        """INSERT INTO notifications (user_id, title, message, type) 
+           VALUES ($1, $2, $3, $4)""",
+        current_user["id"], "Product Updated", f"Product '{product['name']}' was updated.", "info"
+    )
+    
+    return {"message": "Product updated successfully"}
+
+@app.delete("/api/seller/products/{product_id}")
+async def delete_product(product_id: int, current_user: dict = Depends(require_seller), db=Depends(get_db)):
+    # Soft delete
+    result = await db.execute(
+        "UPDATE products SET is_active = FALSE WHERE id = $1 AND seller_id = $2",
+        product_id, current_user["id"]
+    )
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail="Product not found or access denied")
+    
+    await db.execute(
+        """INSERT INTO notifications (user_id, title, message, type) 
+           VALUES ($1, $2, $3, $4)""",
+        current_user["id"], "Product Archived", "The product has been removed from the storefront.", "warning"
+    )
+    
+    return {"message": "Product archived successfully"}
+
+# --- Notification Routes ---
+@app.get("/api/notifications")
+async def get_notifications(current_user: dict = Depends(get_current_user), db=Depends(get_db)):
+    notifications = await db.fetch(
+        "SELECT id, title, message, type, is_read, created_at FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20",
+        current_user["id"]
+    )
+    return [dict(n) for n in notifications]
+
+@app.put("/api/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: int, current_user: dict = Depends(get_current_user), db=Depends(get_db)):
+    await db.execute(
+        "UPDATE notifications SET is_read = TRUE WHERE id = $1 AND user_id = $2",
+        notification_id, current_user["id"]
+    )
+    return {"message": "Notification marked as read"}
+
+@app.get("/api/categories")
+async def get_categories(db=Depends(get_db)):
+    # Seed categories if empty
+    count = await db.fetchval("SELECT COUNT(*) FROM categories")
+    if count == 0:
+        await db.execute("INSERT INTO categories (name, description) VALUES ('Electronics', 'Gadgets and devices'), ('Fashion', 'Clothing and accessories'), ('Home', 'Furniture and decor')")
+    
+    categories = await db.fetch("SELECT id, name FROM categories")
+    return [dict(c) for c in categories]
 
 if __name__ == "__main__":
     import uvicorn

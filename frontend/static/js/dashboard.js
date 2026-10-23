@@ -58,6 +58,8 @@ function showSection(section) {
     document.getElementById('sellerStats').style.display = 'none';
     document.getElementById('sellerProductsSection').style.display = 'none';
     document.getElementById('sellerProfileSection').style.display = 'none';
+    document.getElementById('sellerOrdersSection').style.display = 'none';
+    document.getElementById('overviewSection').style.display = 'none';
     document.getElementById('buyerSection').style.display = 'none';
 
     // Remove active class from nav
@@ -66,10 +68,11 @@ function showSection(section) {
     if (currentUser.user_type === 'seller') {
         if (section === 'overview') {
             document.getElementById('sellerStats').style.display = 'grid';
-            document.getElementById('sellerProductsSection').style.display = 'block';
+            document.getElementById('overviewSection').style.display = 'block';
             document.getElementById('nav-overview').classList.add('active');
             document.getElementById('pageTitle').textContent = 'Seller Dashboard';
             loadSellerData();
+            loadOverviewProducts();
         } else if (section === 'products') {
             document.getElementById('sellerProductsSection').style.display = 'block';
             document.getElementById('nav-products').classList.add('active');
@@ -80,6 +83,12 @@ function showSection(section) {
             document.getElementById('nav-profile').classList.add('active');
             document.getElementById('pageTitle').textContent = 'Store Profile';
             loadSellerProfile();
+        } else if (section === 'orders') {
+            document.getElementById('sellerStats').style.display = 'grid';
+            document.getElementById('sellerOrdersSection').style.display = 'block';
+            document.getElementById('nav-orders').classList.add('active');
+            document.getElementById('pageTitle').textContent = 'Customer Orders';
+            loadSellerOrders();
         }
     } else {
         document.getElementById('buyerSection').style.display = 'block';
@@ -358,6 +367,214 @@ function renderProductsTable(products) {
             </td>
         </tr>
     `).join('');
+}
+
+// --- SELLER ORDERS ---
+async function loadSellerOrders() {
+    const token = localStorage.getItem('token');
+    const statusFilter = document.getElementById('orderStatusFilter').value;
+    
+    try {
+        const res = await fetch(`${API_URL}/seller/orders?status=${statusFilter}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!res.ok) throw new Error('Failed to load orders');
+        const orders = await res.json();
+        
+        // Load stats (always fetch all for stats)
+        const allOrdersRes = await fetch(`${API_URL}/seller/orders`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const allOrders = await allOrdersRes.json();
+        renderOrdersStats(allOrders);
+        
+        renderOrdersTable(orders);
+    } catch (error) {
+        console.error('Error loading orders:', error);
+    }
+}
+
+function renderOrdersStats(orders) {
+    const stats = {
+        pending: orders.filter(o => o.status === 'pending').length,
+        processing: orders.filter(o => o.status === 'processing').length,
+        shipped: orders.filter(o => o.status === 'shipped').length,
+        delivered: orders.filter(o => o.status === 'delivered').length
+    };
+    
+    document.getElementById('ordersStatsGrid').innerHTML = `
+        <div class="order-stat-card pending">
+            <h4>Pending</h4>
+            <p>${stats.pending}</p>
+        </div>
+        <div class="order-stat-card processing">
+            <h4>Processing</h4>
+            <p>${stats.processing}</p>
+        </div>
+        <div class="order-stat-card shipped">
+            <h4>Shipped</h4>
+            <p>${stats.shipped}</p>
+        </div>
+        <div class="order-stat-card delivered">
+            <h4>Delivered</h4>
+            <p>${stats.delivered}</p>
+        </div>
+    `;
+}
+
+function renderOrdersTable(orders) {
+    const tbody = document.getElementById('ordersTableBody');
+    const emptyState = document.getElementById('emptyOrdersState');
+    
+    if (!tbody) return;
+    
+    if (orders.length === 0) {
+        tbody.innerHTML = '';
+        emptyState.style.display = 'block';
+        document.querySelector('#sellerOrdersSection .table-container').style.display = 'none';
+        return;
+    }
+    
+    emptyState.style.display = 'none';
+    document.querySelector('#sellerOrdersSection .table-container').style.display = 'block';
+    
+    tbody.innerHTML = orders.map(order => `
+        <tr>
+            <td><strong>#${order.id}</strong></td>
+            <td>
+                <div>${order.buyer_name}</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">${order.buyer_email}</div>
+            </td>
+            <td>${order.items_count} item${order.items_count > 1 ? 's' : ''}</td>
+            <td><strong>$${parseFloat(order.total_amount).toFixed(2)}</strong></td>
+            <td>
+                <span class="status-badge status-${order.status}">
+                    ${order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                </span>
+            </td>
+            <td>${new Date(order.created_at).toLocaleDateString()}</td>
+            <td>
+                <button class="btn btn-outline btn-sm" onclick="viewOrderDetails(${order.id})">
+                    <i class="fas fa-eye"></i> View
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function viewOrderDetails(orderId) {
+    const token = localStorage.getItem('token');
+    const modal = document.getElementById('orderDetailModal');
+    const content = document.getElementById('orderDetailContent');
+    
+    content.innerHTML = '<div style="text-align: center; padding: 40px;"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+    modal.classList.add('active');
+    
+    try {
+        const res = await fetch(`${API_URL}/seller/orders/${orderId}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!res.ok) throw new Error('Failed to load order');
+        const data = await res.json();
+        
+        const order = data.order;
+        const items = data.items;
+        
+        document.getElementById('orderModalTitle').textContent = `Order #${order.id}`;
+        
+        content.innerHTML = `
+            <div class="order-info-grid">
+                <div class="order-info-block">
+                    <h5>Customer</h5>
+                    <p>${order.buyer_name}</p>
+                    <p style="font-size: 0.85rem; color: var(--text-muted);">${order.buyer_email}</p>
+                    ${order.buyer_phone ? `<p style="font-size: 0.85rem; color: var(--text-muted);">${order.buyer_phone}</p>` : ''}
+                </div>
+                <div class="order-info-block">
+                    <h5>Status</h5>
+                    <span class="status-badge status-${order.status}" style="font-size: 0.9rem; padding: 6px 12px;">
+                        ${order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+                    </span>
+                </div>
+                <div class="order-info-block">
+                    <h5>Order Date</h5>
+                    <p>${new Date(order.created_at).toLocaleString()}</p>
+                </div>
+                <div class="order-info-block">
+                    <h5>Total Amount</h5>
+                    <p style="color: var(--primary); font-size: 1.2rem; font-weight: 700;">$${parseFloat(order.total_amount).toFixed(2)}</p>
+                </div>
+                <div class="order-info-block" style="grid-column: 1 / -1;">
+                    <h5>Shipping Address</h5>
+                    <p>${order.shipping_address}</p>
+                </div>
+            </div>
+            
+            <div class="order-items-list">
+                <h4>Items (${items.length})</h4>
+                ${items.map(item => `
+                    <div class="order-item-row">
+                        ${item.image_url 
+                            ? `<img src="${item.image_url}" alt="${item.name}">`
+                            : `<div class="no-img"><i class="fas fa-box"></i></div>`
+                        }
+                        <div class="order-item-info">
+                            <h5>${item.name}</h5>
+                            <p>Qty: ${item.quantity} × $${parseFloat(item.price_at_purchase).toFixed(2)}</p>
+                        </div>
+                        <div class="order-item-price">$${(item.quantity * item.price_at_purchase).toFixed(2)}</div>
+                    </div>
+                `).join('')}
+            </div>
+            
+            <div class="order-status-selector">
+                <label>Update Status:</label>
+                <select id="newOrderStatus">
+                    <option value="pending" ${order.status === 'pending' ? 'selected' : ''}>Pending</option>
+                    <option value="processing" ${order.status === 'processing' ? 'selected' : ''}>Processing</option>
+                    <option value="shipped" ${order.status === 'shipped' ? 'selected' : ''}>Shipped</option>
+                    <option value="delivered" ${order.status === 'delivered' ? 'selected' : ''}>Delivered</option>
+                    <option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
+                </select>
+                <button class="btn btn-primary btn-sm" onclick="updateOrderStatus(${order.id})">Update</button>
+            </div>
+        `;
+    } catch (error) {
+        content.innerHTML = '<div style="text-align: center; padding: 40px; color: #dc2626;">Failed to load order details</div>';
+    }
+}
+
+async function updateOrderStatus(orderId) {
+    const token = localStorage.getItem('token');
+    const newStatus = document.getElementById('newOrderStatus').value;
+    
+    try {
+        const res = await fetch(`${API_URL}/seller/orders/${orderId}/status`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ status: newStatus })
+        });
+        
+        if (res.ok) {
+            alert('Order status updated successfully!');
+            closeOrderModal();
+            loadSellerOrders(); // Refresh the table
+        } else {
+            const err = await res.json();
+            alert(err.detail || 'Failed to update status');
+        }
+    } catch (error) {
+        alert('Network error');
+    }
+}
+
+function closeOrderModal() {
+    document.getElementById('orderDetailModal').classList.remove('active');
 }
 
 function logout() {

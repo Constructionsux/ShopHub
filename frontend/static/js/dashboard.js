@@ -42,7 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// --- NAVIGATION & UI ---
+// --- Update renderSidebar ---
 function renderSidebar() {
     const menu = document.getElementById('sidebarMenu');
     if (!menu) return;
@@ -56,54 +56,209 @@ function renderSidebar() {
         `;
     } else {
         menu.innerHTML = `
-            <li><a href="#" class="active"><i class="fas fa-home"></i> Overview</a></li>
-            <li><a href="#"><i class="fas fa-shopping-bag"></i> My Orders</a></li>
+            <li><a href="#" onclick="showSection('buyerOverview')" class="active" id="nav-buyerOverview"><i class="fas fa-home"></i> Overview</a></li>
+            <li><a href="#" onclick="showSection('marketplace')" id="nav-marketplace"><i class="fas fa-store"></i> Browse Marketplace</a></li>
+            <li><a href="#" onclick="showSection('buyerOrders')" id="nav-buyerOrders"><i class="fas fa-shopping-bag"></i> My Orders</a></li>
+            <li><a href="#" onclick="showSection('buyerWishlist')" id="nav-buyerWishlist"><i class="fas fa-heart"></i> Wishlist</a></li>
+            <li><a href="#" onclick="showSection('buyerProfile')" id="nav-buyerProfile"><i class="fas fa-cog"></i> Profile & Settings</a></li>
         `;
     }
 }
 
+// --- Update showSection ---
 function showSection(section) {
     const hide = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'none'; };
     const showBlock = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'block'; };
     const showGrid = (id) => { const el = document.getElementById(id); if (el) el.style.display = 'grid'; };
 
-    hide('sellerStats');
-    hide('sellerProductsSection');
-    hide('sellerProfileSection');
-    hide('sellerOrdersSection');
-    hide('overviewSection');
-    hide('buyerSection');
+    // Hide all
+    ['sellerStats', 'sellerProductsSection', 'sellerProfileSection', 'sellerOrdersSection', 'overviewSection', 
+     'buyerSection', 'buyerOverviewSection', 'buyerMarketplaceSection', 'buyerProfileSection'].forEach(hide);
 
     document.querySelectorAll('.sidebar-menu a').forEach(a => a.classList.remove('active'));
 
     if (currentUser.user_type === 'seller') {
         if (section === 'overview') {
-            showGrid('sellerStats');
-            showBlock('overviewSection');
-            const nav = document.getElementById('nav-overview'); if (nav) nav.classList.add('active');
-            const title = document.getElementById('pageTitle'); if (title) title.textContent = 'Seller Dashboard';
-            loadSellerData();
-            loadOverviewProducts();
+            showGrid('sellerStats'); showBlock('overviewSection');
+            document.getElementById('nav-overview')?.classList.add('active');
+            document.getElementById('pageTitle').textContent = 'Seller Dashboard';
+            loadSellerData(); loadOverviewProducts();
         } else if (section === 'products') {
             showBlock('sellerProductsSection');
-            const nav = document.getElementById('nav-products'); if (nav) nav.classList.add('active');
-            const title = document.getElementById('pageTitle'); if (title) title.textContent = 'My Products';
+            document.getElementById('nav-products')?.classList.add('active');
+            document.getElementById('pageTitle').textContent = 'My Products';
             loadSellerData();
         } else if (section === 'profile') {
             showBlock('sellerProfileSection');
-            const nav = document.getElementById('nav-profile'); if (nav) nav.classList.add('active');
-            const title = document.getElementById('pageTitle'); if (title) title.textContent = 'Store Profile';
+            document.getElementById('nav-profile')?.classList.add('active');
+            document.getElementById('pageTitle').textContent = 'Store Profile';
             loadSellerProfile();
         } else if (section === 'orders') {
             showBlock('sellerOrdersSection');
-            const nav = document.getElementById('nav-orders'); if (nav) nav.classList.add('active');
-            const title = document.getElementById('pageTitle'); if (title) title.textContent = 'Customer Orders';
+            document.getElementById('nav-orders')?.classList.add('active');
+            document.getElementById('pageTitle').textContent = 'Customer Orders';
             loadSellerOrders();
         }
     } else {
-        showBlock('buyerSection');
-        const title = document.getElementById('pageTitle'); if (title) title.textContent = 'Buyer Dashboard';
+        // Buyer Views
+        if (section === 'buyerOverview') {
+            showBlock('buyerOverviewSection');
+            document.getElementById('nav-buyerOverview')?.classList.add('active');
+            document.getElementById('pageTitle').textContent = 'Buyer Dashboard';
+            document.getElementById('buyerWelcomeName').textContent = currentUser.full_name.split(' ')[0];
+            loadBuyerStats();
+        } else if (section === 'marketplace') {
+            showBlock('buyerMarketplaceSection');
+            document.getElementById('nav-marketplace')?.classList.add('active');
+            document.getElementById('pageTitle').textContent = 'Browse Marketplace';
+            loadMarketplaceCategories();
+            loadMarketplaceProducts();
+        } else if (section === 'buyerProfile') {
+            showBlock('buyerProfileSection');
+            document.getElementById('nav-buyerProfile')?.classList.add('active');
+            document.getElementById('pageTitle').textContent = 'Profile & Settings';
+            loadBuyerProfile();
+        } else if (section === 'buyerOrders' || section === 'buyerWishlist') {
+            showBlock('buyerSection'); // Fallback placeholder for now
+            document.getElementById('pageTitle').textContent = section === 'buyerOrders' ? 'My Orders' : 'Wishlist';
+        }
     }
+}
+
+// --- BUYER MARKETPLACE ---
+let marketplaceDebounceTimer;
+function debounceLoadMarketplace() {
+    clearTimeout(marketplaceDebounceTimer);
+    marketplaceDebounceTimer = setTimeout(loadMarketplaceProducts, 400);
+}
+
+async function loadMarketplaceCategories() {
+    try {
+        const res = await fetch(`${API_URL}/categories`);
+        if (res.ok) {
+            const cats = await res.json();
+            const select = document.getElementById('marketplaceCategory');
+            if (select) {
+                select.innerHTML = '<option value="">All Categories</option>' + 
+                    cats.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+            }
+        }
+    } catch (error) { console.warn('Load marketplace categories error:', error); }
+}
+
+async function loadMarketplaceProducts() {
+    const search = document.getElementById('marketplaceSearch')?.value || '';
+    const categoryId = document.getElementById('marketplaceCategory')?.value || '';
+    const sortBy = document.getElementById('marketplaceSort')?.value || 'bestsellers';
+    
+    const grid = document.getElementById('marketplaceGrid');
+    const emptyState = document.getElementById('emptyMarketplaceState');
+    if (grid) grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px;"><i class="fas fa-spinner fa-spin"></i> Loading...</div>';
+
+    try {
+        let url = `${API_URL}/marketplace/products?sort_by=${sortBy}`;
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (categoryId) url += `&category_id=${categoryId}`;
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('Failed to load products');
+        const products = await res.json();
+
+        if (grid) {
+            if (products.length === 0) {
+                grid.innerHTML = '';
+                if (emptyState) emptyState.style.display = 'block';
+            } else {
+                if (emptyState) emptyState.style.display = 'none';
+                grid.innerHTML = products.map(p => `
+                    <div class="marketplace-card">
+                        <div class="marketplace-image">
+                            ${p.image_url ? `<img src="${p.image_url}" alt="${p.name}">` : `<div class="no-img"><i class="fas fa-box"></i></div>`}
+                            <div class="seller-badge"><i class="fas fa-star"></i> ${p.seller_rating || 'New'} | ${p.total_sales || 0} sold</div>
+                        </div>
+                        <div class="marketplace-info">
+                            <h4>${p.name}</h4>
+                            <div class="category">${p.category_name} • by ${p.seller_name || 'Unknown Seller'}</div>
+                            <div class="price-row">
+                                <span class="price">$${parseFloat(p.price).toFixed(2)}</span>
+                                <button class="add-cart-btn" onclick="addToCartFromMarketplace(${p.id})" title="Add to Cart">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+    } catch (error) {
+        console.error('Marketplace load error:', error);
+        if (grid) grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px; color: #dc2626;">Failed to load products</div>';
+    }
+}
+
+async function addToCartFromMarketplace(productId) {
+    const token = localStorage.getItem('token');
+    try {
+        const res = await fetch(`${API_URL}/cart`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ product_id: productId, quantity: 1 })
+        });
+        if (res.ok) {
+            alert('Added to cart!');
+        } else {
+            const err = await res.json();
+            alert(err.detail || 'Failed to add to cart');
+        }
+    } catch (error) { alert('Network error'); }
+}
+
+// --- BUYER PROFILE ---
+async function loadBuyerProfile() {
+    const token = localStorage.getItem('token');
+    try {
+        const res = await fetch(`${API_URL}/buyer/profile`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) return;
+        const profile = await res.json();
+        
+        const elName = document.getElementById('buyerFullName'); if(elName) elName.value = profile.full_name || '';
+        const elEmail = document.getElementById('buyerEmail'); if(elEmail) elEmail.value = profile.email || '';
+        const elPhone = document.getElementById('buyerPhone'); if(elPhone) elPhone.value = profile.phone || '';
+        const elShip = document.getElementById('buyerShippingAddress'); if(elShip) elShip.value = profile.default_shipping_address || '';
+        const elBill = document.getElementById('buyerBillingAddress'); if(elBill) elBill.value = profile.default_billing_address || '';
+    } catch (error) { console.error('Failed to load buyer profile', error); }
+}
+
+document.getElementById('buyerProfileForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const token = localStorage.getItem('token');
+    const btn = document.getElementById('saveBuyerProfileBtn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+    const payload = {
+        phone: document.getElementById('buyerPhone').value || null,
+        default_shipping_address: document.getElementById('buyerShippingAddress').value || null,
+        default_billing_address: document.getElementById('buyerBillingAddress').value || null
+    };
+
+    try {
+        const res = await fetch(`${API_URL}/buyer/profile`, {
+            method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (res.ok) { 
+            alert('Profile updated successfully!'); 
+        } else { 
+            const err = await res.json(); alert(err.detail || 'Failed to update profile'); 
+        }
+    } catch (error) { alert('Network error'); } 
+    finally { if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; } }
+});
+
+async function loadBuyerStats() {
+    // Placeholder for future order stats
+    const el = document.getElementById('buyerTotalOrders');
+    if (el) el.textContent = '0'; // Will be updated when we build buyer orders
 }
 
 // --- NOTIFICATIONS ---

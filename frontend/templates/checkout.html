@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout - ShopHub</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/cart.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container nav-container">
+            <a href="/" class="logo"><i class="fas fa-store"></i> <span>Shop<span class="highlight">Hub</span></span></a>
+        </div>
+    </nav>
+
+    <div class="container checkout-container">
+        <h2 class="page-title">Secure Checkout</h2>
+        
+        <div class="checkout-layout">
+            <!-- Shipping Form -->
+            <div class="checkout-form-section">
+                <h3>Shipping Information</h3>
+                <form id="checkoutForm">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Full Name</label>
+                            <input type="text" id="fullName" required placeholder="John Doe">
+                        </div>
+                        <div class="form-group">
+                            <label>Phone Number</label>
+                            <input type="tel" id="phone" required placeholder="+1 (555) 000-0000">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Street Address</label>
+                        <input type="text" id="address" required placeholder="123 Main St, Apt 4B">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>City</label>
+                            <input type="text" id="city" required placeholder="New York">
+                        </div>
+                        <div class="form-group">
+                            <label>ZIP Code</label>
+                            <input type="text" id="zipCode" required placeholder="10001">
+                        </div>
+                    </div>
+                    
+                    <h3 style="margin-top: 30px;">Payment Method</h3>
+                    <div class="payment-methods">
+                        <div class="payment-option selected">
+                            <i class="fas fa-credit-card"></i>
+                            <span>Credit / Debit Card (Mock)</span>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary place-order-btn" id="submitBtn">
+                        Place Order
+                    </button>
+                </form>
+            </div>
+
+            <!-- Order Summary -->
+            <div class="checkout-summary-section">
+                <div class="summary-card">
+                    <h3>Order Summary</h3>
+                    <div id="checkoutItemsList">
+                        <!-- Populated by JS -->
+                    </div>
+                    <div class="summary-divider"></div>
+                    <div class="summary-row total">
+                        <span>Total</span>
+                        <span id="checkoutTotal">$0.00</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/js/checkout.js"></script>
+</body>
+</html>

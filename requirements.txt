@@ -9,3 +9,4 @@ pydantic[email]==2.5.3
 python-dotenv==1.0.0
 fastapi-mail==1.4.1
 httpx==0.26.0
+argon2-cffi

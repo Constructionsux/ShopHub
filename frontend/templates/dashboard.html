@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - ShopHub</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+</head>
+<body>
+    <!-- Top Navbar -->
+    <nav class="dash-navbar">
+        <div class="dash-nav-container">
+            <a href="/" class="logo"><i class="fas fa-store"></i> <span>Shop<span class="highlight">Hub</span></span></a>
+            <div class="dash-nav-actions">
+                <div class="notification-wrapper">
+                    <button class="icon-btn" id="notifBtn">
+                        <i class="fas fa-bell"></i>
+                        <span class="notif-badge" id="notifBadge" style="display: none;">0</span>
+                    </button>
+                    <div class="notif-dropdown" id="notifDropdown">
+                        <div class="notif-header">
+                            <h4>Notifications</h4>
+                            <button class="text-btn" id="markAllRead">Mark all read</button>
+                        </div>
+                        <div class="notif-list" id="notifList">
+                            <p class="empty-state">No new notifications</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="user-profile">
+                    <div class="avatar" id="userAvatar">U</div>
+                    <span id="userName">User</span>
+                    <button class="btn-outline-sm" onclick="logout()">Logout</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="dashboard-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <ul class="sidebar-menu" id="sidebarMenu">
+                <!-- Populated by JS based on role -->
+            </ul>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="content-header">
+                <h2 id="pageTitle">Dashboard Overview</h2>
+            </div>
+
+            <!-- Seller Stats -->
+            <div class="stats-grid" id="sellerStats" style="display: none;">
+                <div class="stat-card">
+                    <div class="stat-icon blue"><i class="fas fa-box"></i></div>
+                    <div class="stat-info">
+                        <h3>Active Products</h3>
+                        <p id="statActiveProducts">0</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon red"><i class="fas fa-exclamation-triangle"></i></div>
+                    <div class="stat-info">
+                        <h3>Low Stock Alerts</h3>
+                        <p id="statLowStock">0</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon green"><i class="fas fa-dollar-sign"></i></div>
+                    <div class="stat-info">
+                        <h3>Inventory Value</h3>
+                        <p id="statInventoryValue">$0.00</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Product Management Section (Seller Only) -->
+            <div class="content-section" id="sellerProductsSection" style="display: none;">
+                <div class="section-header">
+                    <h3>My Products</h3>
+                    <button class="btn btn-primary" onclick="openProductModal()">
+                        <i class="fas fa-plus"></i> Add Product
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Product Name</th>
+                                <th>Category</th>
+                                <th>Price</th>
+                                <th>Stock</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="productsTableBody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Buyer Placeholder -->
+            <div class="content-section" id="buyerSection" style="display: none;">
+                <div class="empty-state-card">
+                    <i class="fas fa-shopping-bag"></i>
+                    <h3>Welcome, Buyer!</h3>
+                    <p>Your order history and saved items will appear here.</p>
+                    <a href="/" class="btn btn-primary">Start Shopping</a>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Add/Edit Product Modal -->
+    <div class="modal-overlay" id="productModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">Add New Product</h3>
+                <button class="close-btn" onclick="closeProductModal()">&times;</button>
+            </div>
+            <form id="productForm">
+                <input type="hidden" id="productId">
+                <div class="form-group">
+                    <label>Product Name</label>
+                    <input type="text" id="prodName" required>
+                </div>
+                <div class="form-group">
+                    <label>Category</label>
+                    <select id="prodCategory" required></select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Price ($)</label>
+                        <input type="number" id="prodPrice" step="0.01" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Stock Quantity</label>
+                        <input type="number" id="prodStock" min="0" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="prodDesc" rows="3" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Image URL (Optional)</label>
+                    <input type="url" id="prodImage" placeholder="https://example.com/image.jpg">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeProductModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary" id="saveProductBtn">Save Product</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

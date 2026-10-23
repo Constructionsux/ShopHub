@@ -1,14 +1,14 @@
 import os
 import secrets
 import httpx
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 
 load_dotenv()
 
-pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["argon2","bcrypt"], deprecated="auto")
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
@@ -26,7 +26,8 @@ def get_password_hash(password: str) -> str:
 
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))))
+    # Use timezone-aware UTC datetime
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -85,7 +86,7 @@ async def send_security_alert_email(email: str, location: str, ip: str):
         <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 15px; margin: 20px 0;">
             <p style="margin: 5px 0;"><strong>📍 Location:</strong> {location or 'Unknown'}</p>
             <p style="margin: 5px 0;"><strong>🌐 IP Address:</strong> {ip or 'Unknown'}</p>
-            <p style="margin: 5px 0;"><strong>🕒 Time:</strong> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
+            <p style="margin: 5px 0;"><strong>🕒 Time:</strong> {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
         </div>
         <p>If this was <strong>NOT</strong> you, please change your password immediately and contact support.</p>
         <br>

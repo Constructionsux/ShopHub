@@ -118,10 +118,15 @@ class CheckoutRequest(BaseModel):
     phone: str
 
 class SellerProfileUpdate(BaseModel):
-    business_name: Optional[str] = None
+    business_name: Optional[str] = Non
     business_description: Optional[str] = None
     website: Optional[str] = None
     logo_url: Optional[str] = None
+
+
+class OrderStatusUpdate(BaseModel):
+    status: str
+
 
 # --- Auth Dependencies ---
 async def get_current_user(authorization: Optional[str] = Header(None), db=Depends(get_db)):
@@ -693,6 +698,116 @@ async def update_seller_profile(data: SellerProfileUpdate, current_user: dict = 
     await db.execute(query, *values)
     
     return {"message": "Profile updated successfully"}
+
+
+# --- SELLER ORDERS ROUTES ---
+@app.get("/api/seller/orders")
+async def get_seller_orders(
+    status: Optional[str] = None,
+    current_user: dict = Depends(require_seller), 
+    db=Depends(get_db)
+):
+    query = """
+        SELECT o.id, o.total_amount, o.status, o.shipping_address, o.created_at,
+               u.full_name as buyer_name, u.email as buyer_email,
+               COUNT(oi.id) as items_count
+        FROM orders o
+        JOIN users u ON o.buyer_id = u.id
+        LEFT JOIN order_items oi ON o.id = oi.order_id
+        WHERE o.seller_id = $1
+    """
+    params = [current_user["id"]]
+    
+    if status and status != "all":
+        query += " AND o.status = $2"
+        params.append(status)
+    
+    query += " GROUP BY o.id, u.full_name, u.email ORDER BY o.created_at DESC"
+    
+    orders = await db.fetch(query, *params)
+    return [dict(order) for order in orders]
+
+@app.get("/api/seller/orders/{order_id}")
+async def get_seller_order_detail(order_id: int, current_user: dict = Depends(require_seller), db=Depends(get_db)):
+    # Verify seller owns this order
+    order = await db.fetchrow(
+        """SELECT o.id, o.total_amount, o.status, o.shipping_address, o.created_at,
+                  u.full_name as buyer_name, u.email as buyer_email, u.phone as buyer_phone
+           FROM orders o
+           JOIN users u ON o.buyer_id = u.id
+           WHERE o.id = $1 AND o.seller_id = $2""",
+        order_id, current_user["id"]
+    )
+    
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Get order items
+    items = await db.fetch(
+        """SELECT oi.quantity, oi.price_at_purchase, p.name, p.image_url
+           FROM order_items oi
+           JOIN products p ON oi.product_id = p.id
+           WHERE oi.order_id = $1""",
+        order_id
+    )
+    
+    return {
+        "order": dict(order),
+        "items": [dict(item) for item in items]
+    }
+
+@app.put("/api/seller/orders/{order_id}/status")
+async def update_order_status(
+    order_id: int, 
+    data: OrderStatusUpdate, 
+    current_user: dict = Depends(require_seller), 
+    db=Depends(get_db)
+):
+    valid_statuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled', 'refunded']
+    if data.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    
+    # Verify seller owns this order
+    order = await db.fetchrow(
+        "SELECT id, buyer_id, status FROM orders WHERE id = $1 AND seller_id = $2",
+        order_id, current_user["id"]
+    )
+    
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    
+    # Update status
+    await db.execute(
+        "UPDATE orders SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        data.status, order_id
+    )
+    
+    # Notify buyer
+    status_messages = {
+        'processing': 'Your order is being prepared',
+        'shipped': 'Your order has been shipped! 🚚',
+        'delivered': 'Your order has been delivered ✅',
+        'cancelled': 'Your order has been cancelled',
+        'refunded': 'Your order has been refunded'
+    }
+    
+    if data.status in status_messages:
+        await db.execute(
+            """INSERT INTO notifications (user_id, title, message, type) 
+               VALUES ($1, $2, $3, $4)""",
+            order["buyer_id"], 
+            f"Order #{order_id} Update", 
+            status_messages[data.status],
+            "order_update"
+        )
+    
+    # Log activity
+    await db.execute(
+        "INSERT INTO activity_logs (user_id, action, details) VALUES ($1, 'update_order_status', $2)",
+        current_user["id"], f"Order #{order_id} status changed to {data.status}"
+    )
+    
+    return {"message": f"Order status updated to {data.status}"}
     
 
 if __name__ == "__main__":

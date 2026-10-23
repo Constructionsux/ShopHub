@@ -1,9 +1,9 @@
 import os
 import secrets
+import httpx
 from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from passlib.context import CryptContext
-from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,21 +12,11 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
-# FastAPI Mail Configuration
-conf = ConnectionConfig(
-    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
-    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
-    MAIL_FROM=os.getenv("MAIL_FROM"),
-    MAIL_PORT=int(os.getenv("MAIL_PORT", 587)),
-    MAIL_SERVER=os.getenv("MAIL_SERVER"),
-    MAIL_FROM_NAME=os.getenv("MAIL_FROM_NAME", "ShopHub"),
-    MAIL_TLS=os.getenv("MAIL_TLS", "true").lower() == "true",
-    MAIL_SSL=os.getenv("MAIL_SSL", "false").lower() == "true",
-    USE_CREDENTIALS=True,
-    VALIDATE_CERTS=True
-)
-
-fm = FastMail(conf)
+# Mailtrap Config
+MAILTRAP_TOKEN = os.getenv("MAILTRAP_API_TOKEN")
+MAILTRAP_FROM_EMAIL = os.getenv("MAILTRAP_FROM_EMAIL", "mailtrap@demomailtrap.com")
+MAILTRAP_FROM_NAME = os.getenv("MAILTRAP_FROM_NAME", "ShopHub")
+MAILTRAP_API_URL = "https://send.api.mailtrap.io/api/send"
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
@@ -43,29 +33,65 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
 def generate_verification_code() -> str:
     return str(secrets.randbelow(900000) + 100000)  # 6-digit code
 
+async def send_mailtrap_email(to_email: str, subject: str, html_content: str):
+    """High-speed, async HTTP email sender using Mailtrap API"""
+    headers = {
+        "Authorization": f"Bearer {MAILTRAP_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "from": {"email": MAILTRAP_FROM_EMAIL, "name": MAILTRAP_FROM_NAME},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        "html": html_content,
+        "category": "Transactional"
+    }
+    
+    # httpx is async and non-blocking, perfect for FastAPI
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(MAILTRAP_API_URL, headers=headers, json=payload, timeout=10.0)
+            response.raise_for_status()
+            return True
+        except httpx.HTTPStatusError as e:
+            print(f"Mailtrap API Error: {e.response.text}")
+            return False
+        except Exception as e:
+            print(f"Mailtrap Connection Error: {str(e)}")
+            return False
+
 async def send_verification_email(email: str, code: str):
-    message = MessageSchema(
-        subject="Verify Your ShopHub Account",
-        recipients=[email],
-        body=f"Your ShopHub verification code is: **{code}**. It expires in 15 minutes. Do not share this with anyone.",
-        subtype=MessageType.html
-    )
-    await fm.send_message(message)
+    html_content = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #4f46e5;">Verify Your ShopHub Account</h2>
+        <p>Hello,</p>
+        <p>Thank you for registering with ShopHub. To complete your registration, please use the verification code below:</p>
+        <div style="background-color: #f3f4f6; padding: 20px; text-align: center; border-radius: 8px; margin: 20px 0;">
+            <h1 style="margin: 0; letter-spacing: 5px; color: #1e293b;">{code}</h1>
+        </div>
+        <p>This code will expire in <strong>15 minutes</strong>. Do not share this code with anyone.</p>
+        <p>If you did not create an account, please ignore this email.</p>
+        <br>
+        <p>Best regards,<br>The ShopHub Team</p>
+    </div>
+    """
+    await send_mailtrap_email(email, "Verify Your ShopHub Account", html_content)
 
 async def send_security_alert_email(email: str, location: str, ip: str):
-    message = MessageSchema(
-        subject="🚨 New Device Login Detected - ShopHub",
-        recipients=[email],
-        body=f"""
-        <h2>New Login Detected</h2>
-        <p>We detected a login to your ShopHub account from a new location.</p>
-        <ul>
-            <li><strong>Location:</strong> {location or 'Unknown'}</li>
-            <li><strong>IP Address:</strong> {ip or 'Unknown'}</li>
-            <li><strong>Time:</strong> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}</li>
-        </ul>
-        <p>If this was you, you can safely ignore this email. If not, please change your password immediately.</p>
-        """,
-        subtype=MessageType.html
-    )
-    await fm.send_message(message)
+    html_content = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #dc2626;">🚨 New Device Login Detected</h2>
+        <p>Hello,</p>
+        <p>We detected a login to your ShopHub account from a new location. If this was you, you can safely ignore this email.</p>
+        <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 15px; margin: 20px 0;">
+            <p style="margin: 5px 0;"><strong>📍 Location:</strong> {location or 'Unknown'}</p>
+            <p style="margin: 5px 0;"><strong>🌐 IP Address:</strong> {ip or 'Unknown'}</p>
+            <p style="margin: 5px 0;"><strong>🕒 Time:</strong> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
+        </div>
+        <p>If this was <strong>NOT</strong> you, please change your password immediately and contact support.</p>
+        <br>
+        <p>Best regards,<br>ShopHub Security Team</p>
+    </div>
+    """
+    await send_mailtrap_email(email, "🚨 New Device Login Detected - ShopHub", html_content)

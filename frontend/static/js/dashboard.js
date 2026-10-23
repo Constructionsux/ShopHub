@@ -22,7 +22,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         renderSidebar();
         await loadCategories();
-
+        await loadNotifications(); 
         // Default view
         showSection('overview');
 

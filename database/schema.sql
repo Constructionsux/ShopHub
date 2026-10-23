@@ -132,3 +132,16 @@ CREATE INDEX idx_cart_buyer ON cart_items(buyer_id);
 CREATE INDEX idx_orders_buyer ON orders(buyer_id);
 CREATE INDEX idx_activity_user ON activity_logs(user_id);
 CREATE INDEX idx_notifications_user ON notifications(user_id);
+
+
+-- Add verification and tracking columns to existing users table
+ALTER TABLE users 
+ADD COLUMN IF NOT EXISTS verification_code VARCHAR(6),
+ADD COLUMN IF NOT EXISTS verification_code_expires TIMESTAMP WITH TIME ZONE,
+ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE,
+ADD COLUMN IF NOT EXISTS last_login_ip VARCHAR(50),
+ADD COLUMN IF NOT EXISTS last_login_location VARCHAR(255);
+
+-- Ensure indexes for fast lookups
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_verification_code ON users(verification_code);

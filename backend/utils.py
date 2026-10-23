@@ -8,15 +8,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-pwd_context = CryptContext( schemes=["argon2", "bcrypt"], deprecated="bcrypt" )
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 
-# Mailtrap Config
-MAILTRAP_TOKEN = os.getenv("MAILTRAP_API_TOKEN")
-MAILTRAP_FROM_EMAIL = os.getenv("MAILTRAP_FROM_EMAIL", "mailtrap@demomailtrap.com")
-MAILTRAP_FROM_NAME = os.getenv("MAILTRAP_FROM_NAME", "ShopHub")
-MAILTRAP_API_URL = "https://send.api.mailtrap.io/api/send"
+# Resend Config
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL", "noreply@yourdomain.com")
+RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", "ShopHub")
+RESEND_API_URL = "https://api.resend.com/emails"
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
@@ -33,32 +33,30 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
 def generate_verification_code() -> str:
     return str(secrets.randbelow(900000) + 100000)  # 6-digit code
 
-async def send_mailtrap_email(to_email: str, subject: str, html_content: str):
-    """High-speed, async HTTP email sender using Mailtrap API"""
+async def send_resend_email(to_email: str, subject: str, html_content: str):
+    """High-speed, async HTTP email sender using Resend API"""
     headers = {
-        "Authorization": f"Bearer {MAILTRAP_TOKEN}",
+        "Authorization": f"Bearer {RESEND_API_KEY}",
         "Content-Type": "application/json"
     }
     
     payload = {
-        "from": {"email": MAILTRAP_FROM_EMAIL, "name": MAILTRAP_FROM_NAME},
-        "to": [{"email": to_email}],
+        "from": f"{RESEND_FROM_NAME} <{RESEND_FROM_EMAIL}>",
+        "to": [to_email],
         "subject": subject,
-        "html": html_content,
-        "category": "Transactional"
+        "html": html_content
     }
     
-    # httpx is async and non-blocking, perfect for FastAPI
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(MAILTRAP_API_URL, headers=headers, json=payload, timeout=10.0)
+            response = await client.post(RESEND_API_URL, headers=headers, json=payload, timeout=10.0)
             response.raise_for_status()
             return True
         except httpx.HTTPStatusError as e:
-            print(f"Mailtrap API Error: {e.response.text}")
+            print(f"Resend API Error: {e.response.text}")
             return False
         except Exception as e:
-            print(f"Mailtrap Connection Error: {str(e)}")
+            print(f"Resend Connection Error: {str(e)}")
             return False
 
 async def send_verification_email(email: str, code: str):
@@ -76,7 +74,7 @@ async def send_verification_email(email: str, code: str):
         <p>Best regards,<br>The ShopHub Team</p>
     </div>
     """
-    await send_mailtrap_email(email, "Verify Your ShopHub Account", html_content)
+    await send_resend_email(email, "Verify Your ShopHub Account", html_content)
 
 async def send_security_alert_email(email: str, location: str, ip: str):
     html_content = f"""
@@ -94,4 +92,4 @@ async def send_security_alert_email(email: str, location: str, ip: str):
         <p>Best regards,<br>ShopHub Security Team</p>
     </div>
     """
-    await send_mailtrap_email(email, "🚨 New Device Login Detected - ShopHub", html_content)
+    await send_resend_email(email, "🚨 New Device Login Detected - ShopHub", html_content)

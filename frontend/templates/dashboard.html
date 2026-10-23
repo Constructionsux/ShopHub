@@ -82,6 +82,75 @@
                 </div>
             </div>
 
+            <!-- Seller Orders Section -->
+<div class="content-section" id="sellerOrdersSection" style="display: none;">
+    <div class="section-header">
+        <div>
+            <h3>Customer Orders</h3>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 5px;">Manage and track incoming orders</p>
+        </div>
+    </div>
+
+    <!-- Orders Stats -->
+    <div class="orders-stats-grid" id="ordersStatsGrid">
+        <!-- Populated by JS -->
+    </div>
+
+    <!-- Orders Filter -->
+    <div class="products-toolbar">
+        <div class="filter-group">
+            <select id="orderStatusFilter" onchange="loadSellerOrders()">
+                <option value="all">All Orders</option>
+                <option value="pending">Pending</option>
+                <option value="processing">Processing</option>
+                <option value="shipped">Shipped</option>
+                <option value="delivered">Delivered</option>
+                <option value="cancelled">Cancelled</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Orders Table -->
+    <div class="table-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Order ID</th>
+                    <th>Customer</th>
+                    <th>Items</th>
+                    <th>Total</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="ordersTableBody">
+                <!-- Populated by JS -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyOrdersState" class="empty-state-card" style="display: none;">
+        <i class="fas fa-shopping-cart"></i>
+        <h3>No orders yet</h3>
+        <p>When customers place orders, they will appear here.</p>
+    </div>
+</div>
+
+<!-- Order Detail Modal -->
+<div class="modal-overlay" id="orderDetailModal">
+    <div class="modal-content order-modal">
+        <div class="modal-header">
+            <h3 id="orderModalTitle">Order Details</h3>
+            <button class="close-btn" onclick="closeOrderModal()">&times;</button>
+        </div>
+        <div class="order-detail-content" id="orderDetailContent">
+            <!-- Populated by JS -->
+        </div>
+    </div>
+</div>
+
             <!-- Seller Profile Section -->
 <div class="content-section" id="sellerProfileSection" style="display: none;">
     <div class="section-header">

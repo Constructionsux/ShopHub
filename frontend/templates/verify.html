@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Email - ShopHub</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/auth.css">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <a href="/" class="logo" style="justify-content: center; margin-bottom: 20px;">
+                    <i class="fas fa-store"></i>
+                    <span>Shop<span class="highlight">Hub</span></span>
+                </a>
+                <h2>Verify Your Email</h2>
+                <p>Enter the 6-digit code sent to <strong id="displayEmail">{{ email }}</strong></p>
+            </div>
+
+            <div id="errorMsg" class="error-message"></div>
+            <div id="successMsg" class="success-message"></div>
+
+            <form id="verifyForm">
+                <input type="hidden" id="email" value="{{ email }}">
+                <div class="code-inputs">
+                    <input type="text" maxlength="1" class="code-digit" required>
+                    <input type="text" maxlength="1" class="code-digit" required>
+                    <input type="text" maxlength="1" class="code-digit" required>
+                    <input type="text" maxlength="1" class="code-digit" required>
+                    <input type="text" maxlength="1" class="code-digit" required>
+                    <input type="text" maxlength="1" class="code-digit" required>
+                </div>
+                <button type="submit" class="btn btn-primary auth-btn" id="submitBtn">
+                    Verify Account
+                </button>
+            </form>
+
+            <div class="auth-footer">
+                Didn't receive the code? <a href="#" onclick="alert('Resend functionality coming soon!')">Resend</a>
+            </div>
+        </div>
+    </div>
+    <script src="/static/js/auth.js"></script>
+</body>
+</html>

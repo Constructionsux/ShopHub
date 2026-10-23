@@ -128,6 +128,12 @@ class OrderStatusUpdate(BaseModel):
     status: str
 
 
+class BuyerProfileUpdate(BaseModel):
+    phone: Optional[str] = None
+    default_shipping_address: Optional[str] = None
+    default_billing_address: Optional[str] = None
+    
+
 # --- Auth Dependencies ---
 async def get_current_user(authorization: Optional[str] = Header(None), db=Depends(get_db)):
     if not authorization or not authorization.startswith("Bearer "):
@@ -808,6 +814,76 @@ async def update_order_status(
     )
     
     return {"message": f"Order status updated to {data.status}"}
+
+
+# --- BUYER PROFILE ROUTES ---
+@app.get("/api/buyer/profile")
+async def get_buyer_profile(current_user: dict = Depends(require_buyer), db=Depends(get_db)):
+    profile = await db.fetchrow(
+        """SELECT bp.default_shipping_address, bp.default_billing_address, u.email, u.full_name, u.phone
+           FROM buyer_profiles bp
+           JOIN users u ON bp.user_id = u.id
+           WHERE bp.user_id = $1""",
+        current_user["id"]
+    )
+    return dict(profile) if profile else {}
+
+@app.put("/api/buyer/profile")
+async def update_buyer_profile(data: BuyerProfileUpdate, current_user: dict = Depends(require_buyer), db=Depends(get_db)):
+    # Update user phone if provided
+    if data.phone is not None:
+        await db.execute("UPDATE users SET phone = $1 WHERE id = $2", data.phone, current_user["id"])
+    
+    # Update buyer profile addresses
+    await db.execute(
+        """UPDATE buyer_profiles 
+           SET default_shipping_address = $1, default_billing_address = $2 
+           WHERE user_id = $3""",
+        data.default_shipping_address, data.default_billing_address, current_user["id"]
+    )
+    return {"message": "Profile updated successfully"}
+
+# --- MARKETPLACE ROUTES (For Buyers) ---
+@app.get("/api/marketplace/products")
+async def get_marketplace_products(
+    search: Optional[str] = None,
+    category_id: Optional[int] = None,
+    sort_by: str = "bestsellers",  # bestsellers, price_low, price_high, newest
+    db=Depends(get_db)
+):
+    query = """
+        SELECT p.id, p.name, p.description, p.price, p.image_url, p.category_id, c.name as category_name,
+               sp.business_name as seller_name, sp.rating as seller_rating, sp.total_sales
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        JOIN seller_profiles sp ON p.seller_id = sp.user_id
+        WHERE p.is_active = TRUE
+    """
+    params = []
+    param_idx = 1
+
+    if search:
+        query += f" AND (p.name ILIKE ${param_idx} OR p.description ILIKE ${param_idx})"
+        params.append(f"%{search}%")
+        param_idx += 1
+
+    if category_id:
+        query += f" AND p.category_id = ${param_idx}"
+        params.append(category_id)
+        param_idx += 1
+
+    # Sorting
+    if sort_by == "bestsellers":
+        query += " ORDER BY sp.total_sales DESC, p.created_at DESC"
+    elif sort_by == "price_low":
+        query += " ORDER BY p.price ASC"
+    elif sort_by == "price_high":
+        query += " ORDER BY p.price DESC"
+    else: # newest
+        query += " ORDER BY p.created_at DESC"
+
+    products = await db.fetch(query, *params)
+    return [dict(p) for p in products]
     
 
 if __name__ == "__main__":

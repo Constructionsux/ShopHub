@@ -65,6 +65,9 @@ class VerifyRequest(BaseModel):
     email: EmailStr
     code: str
 
+class ResendCodeRequest(BaseModel):
+    email: EmailStr
+    
 class ProductCreate(BaseModel):
     name: str
     description: str
@@ -224,6 +227,42 @@ async def login_user(data: LoginRequest, db=Depends(get_db)):
     
     return {"access_token": token, "token_type": "bearer", "user_type": user["user_type"]}
 
+@app.post("/api/resend-code")
+async def resend_verification_code(data: ResendCodeRequest, db=Depends(get_db)):
+    # 1. Check if user exists
+    user = await db.fetchrow(
+        "SELECT id, email, is_verified, verification_code_expires FROM users WHERE email = $1",
+        data.email
+    )
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user["is_verified"]:
+        raise HTTPException(status_code=400, detail="Email is already verified")
+    
+    # 2. Rate limiting: Don't allow resend if last code was sent less than 60 seconds ago
+    if user["verification_code_expires"]:
+        time_since_last = datetime.now(timezone.utc) - user["verification_code_expires"].replace(tzinfo=timezone.utc)
+        # Code expires in 15 mins, so if it expires in more than 14 mins, it was just sent
+        if time_since_last.total_seconds() < -840:  # 14 minutes = 840 seconds
+            raise HTTPException(status_code=429, detail="Please wait 60 seconds before requesting a new code")
+    
+    # 3. Generate new code
+    new_code = generate_verification_code()
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=15)
+    
+    # 4. Update database
+    await db.execute(
+        "UPDATE users SET verification_code = $1, verification_code_expires = $2 WHERE id = $3",
+        new_code, expires_at, user["id"]
+    )
+    
+    # 5. Send email
+    await send_verification_email(data.email, new_code)
+    
+    return {"message": "New verification code sent. Please check your email."}
+    
 @app.get("/api/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
     return current_user

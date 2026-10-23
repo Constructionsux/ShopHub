@@ -170,3 +170,62 @@ if (verifyForm) {
         }
     });
 }
+
+// --- RESEND CODE HANDLER ---
+let resendCooldown = 0;
+let cooldownInterval = null;
+
+async function resendCode() {
+    if (resendCooldown > 0) return;
+
+    const email = document.getElementById('email').value;
+    const btn = document.getElementById('resendBtn');
+    const timer = document.getElementById('resendTimer');
+    const countdown = document.getElementById('countdown');
+    
+    // Hide any previous messages
+    document.getElementById('errorMsg').style.display = 'none';
+    document.getElementById('successMsg').style.display = 'none';
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+
+    try {
+        const res = await fetch('/api/resend-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            showSuccess('New verification code sent! Please check your email.');
+            
+            // Start 60-second cooldown
+            resendCooldown = 60;
+            btn.style.display = 'none';
+            timer.style.display = 'block';
+            
+            cooldownInterval = setInterval(() => {
+                resendCooldown--;
+                countdown.textContent = resendCooldown;
+                
+                if (resendCooldown <= 0) {
+                    clearInterval(cooldownInterval);
+                    btn.style.display = 'inline-flex';
+                    btn.disabled = false;
+                    btn.innerHTML = 'Resend Code';
+                    timer.style.display = 'none';
+                }
+            }, 1000);
+        } else {
+            showError(data.detail || 'Failed to resend code');
+            btn.disabled = false;
+            btn.innerHTML = 'Resend Code';
+        }
+    } catch (err) {
+        showError('Network error. Please try again.');
+        btn.disabled = false;
+        btn.innerHTML = 'Resend Code';
+    }
+}

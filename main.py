@@ -118,7 +118,7 @@ class CheckoutRequest(BaseModel):
     phone: str
 
 class SellerProfileUpdate(BaseModel):
-    business_name: Optional[str] = Non
+    business_name: Optional[str] = None
     business_description: Optional[str] = None
     website: Optional[str] = None
     logo_url: Optional[str] = None

@@ -38,7 +38,13 @@
             </form>
 
             <div class="auth-footer">
-                Didn't receive the code? <a href="#" onclick="alert('Resend functionality coming soon!')">Resend</a>
+                <p>Didn't receive the code?</p>
+                <button id="resendBtn" class="btn btn-outline" style="margin-top: 10px; width: 100%;" onclick="resendCode()">
+                    Resend Code
+                </button>
+                <p id="resendTimer" style="display: none; margin-top: 10px; color: var(--text-muted); font-size: 0.85rem;">
+                    You can request a new code in <span id="countdown">60</span> seconds
+                </p>
             </div>
         </div>
     </div>

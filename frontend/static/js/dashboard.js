@@ -67,45 +67,62 @@ function renderSidebar() {
 }
 
 function showSection(section) {
-    // Hide all sections
-    document.getElementById('sellerStats').style.display = 'none';
-    document.getElementById('sellerProductsSection').style.display = 'none';
-    document.getElementById('sellerProfileSection').style.display = 'none';
-    document.getElementById('sellerOrdersSection').style.display = 'none';
-    document.getElementById('overviewSection').style.display = 'none';
-    document.getElementById('buyerSection').style.display = 'none';
+    // Helper functions to safely show/hide elements without throwing errors
+    const hide = (id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    };
+    
+    const showBlock = (id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'block';
+    };
 
-    // Remove active class from nav
+    const showGrid = (id) => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'grid';
+    };
+
+    // Safely hide all possible sections
+    hide('sellerStats');
+    hide('sellerProductsSection');
+    hide('sellerProfileSection');
+    hide('sellerOrdersSection');
+    hide('overviewSection');
+    hide('buyerSection');
+
+    // Remove active class from all nav links
     document.querySelectorAll('.sidebar-menu a').forEach(a => a.classList.remove('active'));
 
+    // Show the requested section safely
     if (currentUser.user_type === 'seller') {
         if (section === 'overview') {
-            document.getElementById('sellerStats').style.display = 'grid';
-            document.getElementById('overviewSection').style.display = 'block';
-            document.getElementById('nav-overview').classList.add('active');
-            document.getElementById('pageTitle').textContent = 'Seller Dashboard';
+            showGrid('sellerStats');
+            showBlock('overviewSection');
+            const nav = document.getElementById('nav-overview'); if (nav) nav.classList.add('active');
+            const title = document.getElementById('pageTitle'); if (title) title.textContent = 'Seller Dashboard';
             loadSellerData();
             loadOverviewProducts();
         } else if (section === 'products') {
-            document.getElementById('sellerProductsSection').style.display = 'block';
-            document.getElementById('nav-products').classList.add('active');
-            document.getElementById('pageTitle').textContent = 'My Products';
+            showBlock('sellerProductsSection');
+            const nav = document.getElementById('nav-products'); if (nav) nav.classList.add('active');
+            const title = document.getElementById('pageTitle'); if (title) title.textContent = 'My Products';
             loadSellerData();
         } else if (section === 'profile') {
-            document.getElementById('sellerProfileSection').style.display = 'block';
-            document.getElementById('nav-profile').classList.add('active');
-            document.getElementById('pageTitle').textContent = 'Store Profile';
+            showBlock('sellerProfileSection');
+            const nav = document.getElementById('nav-profile'); if (nav) nav.classList.add('active');
+            const title = document.getElementById('pageTitle'); if (title) title.textContent = 'Store Profile';
             loadSellerProfile();
         } else if (section === 'orders') {
-            document.getElementById('sellerStats').style.display = 'grid';
-            document.getElementById('sellerOrdersSection').style.display = 'block';
-            document.getElementById('nav-orders').classList.add('active');
-            document.getElementById('pageTitle').textContent = 'Customer Orders';
+            showBlock('sellerOrdersSection');
+            const nav = document.getElementById('nav-orders'); if (nav) nav.classList.add('active');
+            const title = document.getElementById('pageTitle'); if (title) title.textContent = 'Customer Orders';
             loadSellerOrders();
         }
     } else {
-        document.getElementById('buyerSection').style.display = 'block';
-        document.getElementById('pageTitle').textContent = 'Buyer Dashboard';
+        // Buyer view
+        showBlock('buyerSection');
+        const title = document.getElementById('pageTitle'); if (title) title.textContent = 'Buyer Dashboard';
     }
 }
 

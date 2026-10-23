@@ -145,3 +145,7 @@ ADD COLUMN IF NOT EXISTS last_login_location VARCHAR(255);
 -- Ensure indexes for fast lookups
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_verification_code ON users(verification_code);
+
+ALTER TABLE users 
+ADD COLUMN IF NOT EXISTS reset_code VARCHAR(6),
+ADD COLUMN IF NOT EXISTS reset_code_expires TIMESTAMP WITH TIME ZONE;

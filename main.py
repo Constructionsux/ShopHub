@@ -34,7 +34,7 @@ app.add_middleware(
 )
 
 # Define base directory (points to the root 'ecommerce_portfolio' folder)
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
 
 # Mount static files (CSS, JS, Images)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "frontend" / "static"), name="static")

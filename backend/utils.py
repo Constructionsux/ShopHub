@@ -94,3 +94,21 @@ async def send_security_alert_email(email: str, location: str, ip: str):
     </div>
     """
     await send_resend_email(email, "🚨 New Device Login Detected - ShopHub", html_content)
+
+
+async def send_password_reset_email(email: str, code: str):
+    html_content = f"""
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #dc2626;">Reset Your ShopHub Password</h2>
+        <p>Hello,</p>
+        <p>We received a request to reset your password. Use the code below to proceed:</p>
+        <div style="background-color: #fef2f2; padding: 20px; text-align: center; border-radius: 8px; margin: 20px 0; border: 1px solid #fecaca;">
+            <h1 style="margin: 0; letter-spacing: 5px; color: #dc2626;">{code}</h1>
+        </div>
+        <p>This code will expire in <strong>15 minutes</strong>.</p>
+        <p>If you did not request a password reset, please ignore this email. Your account remains secure.</p>
+        <br>
+        <p>Best regards,<br>ShopHub Security Team</p>
+    </div>
+    """
+    await send_resend_email(email, "Reset Your ShopHub Password", html_content)

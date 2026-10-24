@@ -1,5 +1,6 @@
 const API_URL = '/api';
 let cartData = [];
+const SHIPPING_FEE = 15.00; // Mock shipping fee
 
 document.addEventListener('DOMContentLoaded', async () => {
     const token = localStorage.getItem('token');
@@ -7,6 +8,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         window.location.href = '/login?redirect=/cart';
         return;
     }
+    updateNavCartCount();
     await loadCart();
 });
 
@@ -30,10 +32,11 @@ function renderCart() {
     
     if (cartData.length === 0) {
         container.innerHTML = `
-            <div class="empty-state">
-                <i class="fas fa-shopping-cart" style="font-size: 3rem; margin-bottom: 15px; color: #cbd5e1;"></i>
+            <div class="empty-state" style="grid-column: 1/-1; text-align: center; padding: 60px 20px;">
+                <i class="fas fa-shopping-cart" style="font-size: 4rem; margin-bottom: 20px; color: #cbd5e1;"></i>
                 <h3>Your cart is empty</h3>
-                <a href="/" class="btn btn-primary" style="margin-top: 15px;">Start Shopping</a>
+                <p style="color: var(--text-muted); margin-bottom: 20px;">Looks like you haven't added anything yet.</p>
+                <a href="/dashboard" onclick="showSection('marketplace')" class="btn btn-primary">Start Shopping</a>
             </div>`;
         checkoutBtn.disabled = true;
         updateSummary(0);
@@ -41,36 +44,37 @@ function renderCart() {
     }
 
     checkoutBtn.disabled = false;
-    let total = 0;
+    let subtotal = 0;
 
     container.innerHTML = cartData.map(item => {
         const itemTotal = item.price * item.quantity;
-        total += itemTotal;
+        subtotal += itemTotal;
         return `
         <div class="cart-item" data-id="${item.id}">
             <div class="item-image">
-                <i class="fas fa-box"></i>
+                ${item.image_url ? `<img src="${item.image_url}" alt="${item.name}">` : '<i class="fas fa-box"></i>'}
             </div>
             <div class="item-details">
                 <div>
                     <div class="item-name">${item.name}</div>
+                    <div class="item-seller">Sold by: ShopHub Seller</div>
                     <div class="item-price">$${item.price.toFixed(2)}</div>
                 </div>
                 <div class="item-controls">
                     <div class="quantity-control">
-                        <button class="qty-btn" onclick="updateQuantity(${item.id}, ${item.quantity - 1})">-</button>
+                        <button class="qty-btn" onclick="updateQuantity(${item.id}, ${item.quantity - 1})"><i class="fas fa-minus"></i></button>
                         <input type="text" class="qty-input" value="${item.quantity}" readonly>
-                        <button class="qty-btn" onclick="updateQuantity(${item.id}, ${item.quantity + 1}, ${item.stock_quantity})">+</button>
+                        <button class="qty-btn" onclick="updateQuantity(${item.id}, ${item.quantity + 1}, ${item.stock_quantity})"><i class="fas fa-plus"></i></button>
                     </div>
                     <button class="remove-btn" onclick="removeItem(${item.id})">
-                        <i class="fas fa-trash"></i> Remove
+                        <i class="fas fa-trash-alt"></i> Remove
                     </button>
                 </div>
             </div>
         </div>`;
     }).join('');
 
-    updateSummary(total);
+    updateSummary(subtotal);
 }
 
 async function updateQuantity(itemId, newQuantity, maxStock = 999) {
@@ -104,7 +108,6 @@ async function updateQuantity(itemId, newQuantity, maxStock = 999) {
 }
 
 async function removeItem(itemId) {
-    if (!confirm('Remove this item from your cart?')) return;
     const token = localStorage.getItem('token');
     try {
         const res = await fetch(`${API_URL}/cart/${itemId}`, {
@@ -117,7 +120,26 @@ async function removeItem(itemId) {
     }
 }
 
-function updateSummary(total) {
-    document.getElementById('summarySubtotal').textContent = `$${total.toFixed(2)}`;
+function updateSummary(subtotal) {
+    const total = subtotal > 0 ? subtotal + SHIPPING_FEE : 0;
+    document.getElementById('summarySubtotal').textContent = `$${subtotal.toFixed(2)}`;
+    document.getElementById('summaryShipping').textContent = `$${SHIPPING_FEE.toFixed(2)}`;
     document.getElementById('summaryTotal').textContent = `$${total.toFixed(2)}`;
+}
+
+async function updateNavCartCount() {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    try {
+        const res = await fetch(`${API_URL}/cart`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res.ok) {
+            const cart = await res.json();
+            const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+            const badge = document.getElementById('navCartCount');
+            if (badge) {
+                badge.textContent = count;
+                badge.style.display = count > 0 ? 'flex' : 'none';
+            }
+        }
+    } catch (error) { console.warn('Cart count error:', error); }
 }

@@ -1,5 +1,6 @@
 const API_URL = '/api';
-let checkoutTotal = 0;
+const SHIPPING_FEE = 15.00;
+let checkoutSubtotal = 0;
 
 document.addEventListener('DOMContentLoaded', async () => {
     const token = localStorage.getItem('token');
@@ -13,9 +14,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function loadCheckoutSummary() {
     const token = localStorage.getItem('token');
     try {
-        const res = await fetch(`${API_URL}/cart`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
+        const res = await fetch(`${API_URL}/cart`, { headers: { 'Authorization': `Bearer ${token}` } });
         if (!res.ok) throw new Error('Failed to load cart');
         const cartData = await res.json();
         
@@ -25,32 +24,53 @@ async function loadCheckoutSummary() {
         }
 
         const container = document.getElementById('checkoutItemsList');
-        checkoutTotal = 0;
+        checkoutSubtotal = 0;
 
         container.innerHTML = cartData.map(item => {
             const itemTotal = item.price * item.quantity;
-            checkoutTotal += itemTotal;
+            checkoutSubtotal += itemTotal;
             return `
             <div class="checkout-item">
                 <div>
                     <div class="checkout-item-name">${item.name}</div>
                     <div class="checkout-item-qty">Qty: ${item.quantity}</div>
                 </div>
-                <div style="font-weight: 600;">$${itemTotal.toFixed(2)}</div>
+                <div style="font-weight: 700;">$${itemTotal.toFixed(2)}</div>
             </div>`;
         }).join('');
 
-        document.getElementById('checkoutTotal').textContent = `$${checkoutTotal.toFixed(2)}`;
+        const total = checkoutSubtotal + SHIPPING_FEE;
+        document.getElementById('checkoutSubtotal').textContent = `$${checkoutSubtotal.toFixed(2)}`;
+        document.getElementById('checkoutShipping').textContent = `$${SHIPPING_FEE.toFixed(2)}`;
+        document.getElementById('checkoutTotal').textContent = `$${total.toFixed(2)}`;
+        
+        // Auto-fill profile data if available
+        await prefillCheckoutData();
     } catch (error) {
         window.location.href = '/cart';
     }
 }
 
+async function prefillCheckoutData() {
+    const token = localStorage.getItem('token');
+    try {
+        const res = await fetch(`${API_URL}/buyer/profile`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (res.ok) {
+            const profile = await res.json();
+            if (profile.full_name) document.getElementById('fullName').value = profile.full_name;
+            if (profile.phone) document.getElementById('phone').value = profile.phone;
+            if (profile.default_shipping_address) document.getElementById('address').value = profile.default_shipping_address;
+        }
+    } catch (error) { console.warn('Profile prefill error:', error); }
+}
+
 document.getElementById('checkoutForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('submitBtn');
+    const originalText = btn.innerHTML;
+    
     btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing Order...';
+    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Processing Payment...';
 
     const payload = {
         full_name: document.getElementById('fullName').value,
@@ -62,6 +82,9 @@ document.getElementById('checkoutForm').addEventListener('submit', async (e) => 
 
     const token = localStorage.getItem('token');
     try {
+        // Simulate payment processing delay
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
         const res = await fetch(`${API_URL}/checkout`, {
             method: 'POST',
             headers: {
@@ -74,16 +97,19 @@ document.getElementById('checkoutForm').addEventListener('submit', async (e) => 
         const data = await res.json();
 
         if (res.ok) {
-            alert(`Order placed successfully! Order #${data.order_ids.join(', #')}`);
-            window.location.href = '/dashboard'; // Redirect to dashboard to see notifications
+            btn.innerHTML = '<i class="fas fa-check"></i> Order Placed Successfully!';
+            btn.style.background = '#22c55e';
+            setTimeout(() => {
+                window.location.href = '/dashboard'; // Redirects to buyer overview
+            }, 1500);
         } else {
             alert(data.detail || 'Checkout failed. Please try again.');
             btn.disabled = false;
-            btn.innerHTML = 'Place Order';
+            btn.innerHTML = originalText;
         }
     } catch (error) {
         alert('Network error during checkout.');
         btn.disabled = false;
-        btn.innerHTML = 'Place Order';
+        btn.innerHTML = originalText;
     }
 });

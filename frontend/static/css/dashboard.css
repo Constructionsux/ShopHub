@@ -1,6 +1,10 @@
 /* =========================================
    PREMIUM DASHBOARD UI OVERHAUL
    ========================================= */
+body {
+    background-color: #ff0000 !important; /* Bright Red */
+    font-family: Arial, sans-serif !important;
+}
 
 /* --- Modern Form Inputs (Fixes "Pure HTML" look) --- */
 .form-group {

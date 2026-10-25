@@ -1,6 +1,6 @@
 const API_URL = '/api';
 let cartData = [];
-const SHIPPING_FEE = 15.00; // Mock shipping fee
+const SHIPPING_FEE = 20.00; 
 
 document.addEventListener('DOMContentLoaded', async () => {
     const token = localStorage.getItem('token');

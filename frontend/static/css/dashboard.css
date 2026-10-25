@@ -391,3 +391,53 @@ ul { list-style: none; }
     .dash-nav-actions { gap: 12px; }
     .user-profile div:last-child { display: none; } /* Hide name on small mobile */
 }
+
+
+/* =========================================
+   TOAST NOTIFICATIONS
+   ========================================= */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none; /* Let clicks pass through empty space */
+}
+
+.toast {
+    background: var(--white);
+    color: var(--text-main);
+    padding: 16px 20px;
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    border-left: 4px solid var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 300px;
+    max-width: 400px;
+    pointer-events: auto;
+    animation: slideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    font-weight: 500;
+    font-size: 0.95rem;
+}
+
+.toast.success { border-left-color: #22c55e; }
+.toast.success i { color: #22c55e; }
+.toast.error { border-left-color: #ef4444; }
+.toast.error i { color: #ef4444; }
+.toast.info { border-left-color: #3b82f6; }
+.toast.info i { color: #3b82f6; }
+
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes fadeOut {
+    from { opacity: 1; transform: translateX(0); }
+    to { opacity: 0; transform: translateX(20px); }
+}

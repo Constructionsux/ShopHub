@@ -186,6 +186,10 @@ async def serve_forgot_password(request: Request):
 @app.get("/reset-password", response_class=HTMLResponse)
 async def serve_reset_password(request: Request, email: str = ""):
     return templates.TemplateResponse("reset-password.html", {"request": request, "email": email})
+
+@app.get("/cart", response_class=HTMLResponse)
+async def serve_cart(request: Request):
+    return templates.TemplateResponse("cart.html", {"request": request})
     
 @app.post("/api/register")
 async def register_user(data: RegisterRequest, db=Depends(get_db)):

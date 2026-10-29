@@ -1,6 +1,3 @@
-Here is the complete, uninterrupted `README.md` file in a single code block. You can click the **"Copy"** button at the top right of the block to copy the entire file at once, then paste it directly into your `README.md` file on GitHub.
-
-```markdown
 # 🛒 ShopHub - Modern Full-Stack E-Commerce Platform
 
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)

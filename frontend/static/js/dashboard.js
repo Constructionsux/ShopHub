@@ -801,6 +801,120 @@ async function loadBuyerStats() {
     if (el) el.textContent = '0'; // Placeholder for future order stats
 }
 
+// --- STAR RATING UI HELPERS ---
+function generateStarRating(rating, isInteractive = false, productId = 0, orderId = 0) {
+    let starsHtml = '';
+    for (let i = 1; i <= 5; i++) {
+        const isActive = i <= rating ? 'active' : '';
+        const readonlyClass = isInteractive ? '' : 'readonly';
+        const clickAttr = isInteractive ? `onclick="setRating(${i}, ${productId}, ${orderId})"` : '';
+        starsHtml += `<i class="fas fa-star star ${isActive} ${readonlyClass}" ${clickAttr} data-value="${i}"></i>`;
+    }
+    return `<div class="star-rating ${readonlyClass}" id="star-rating-${productId}-${orderId}">${starsHtml}</div>`;
+}
+
+let currentRating = 0;
+function setRating(value, productId, orderId) {
+    currentRating = value;
+    const container = document.getElementById(`star-rating-${productId}-${orderId}`);
+    const stars = container.querySelectorAll('.star');
+    stars.forEach((star, index) => {
+        if (index < value) {
+            star.classList.add('active');
+        } else {
+            star.classList.remove('active');
+        }
+    });
+}
+
+// --- SUBMIT REVIEW ---
+async function submitReview(productId, orderId) {
+    if (currentRating === 0) {
+        showToast('Please select a star rating', 'error');
+        return;
+    }
+
+    const reviewText = document.getElementById(`review-text-${productId}-${orderId}`)?.value || '';
+    const token = localStorage.getItem('token');
+    const btn = document.getElementById(`submit-review-btn-${productId}-${orderId}`);
+    
+    if (btn) { btn.disabled = true; btn.textContent = 'Submitting...'; }
+
+    try {
+        const res = await fetch(`${API_URL}/reviews`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                product_id: productId,
+                order_id: orderId,
+                rating: currentRating,
+                review_text: reviewText
+            })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+            showToast('Review submitted successfully!', 'success');
+            // Hide form, show success or refresh order list
+            const form = document.getElementById(`review-form-${productId}-${orderId}`);
+            if (form) form.style.display = 'none';
+            currentRating = 0; // Reset
+        } else {
+            showToast(data.detail || 'Failed to submit review', 'error');
+        }
+    } catch (error) {
+        showToast('Network error', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Submit Review'; }
+    }
+}
+
+// --- FETCH & DISPLAY REVIEWS (For Marketplace/Product View) ---
+async function loadProductReviews(productId) {
+    try {
+        const res = await fetch(`${API_URL}/products/${productId}/reviews`);
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        const container = document.getElementById(`reviews-container-${productId}`);
+        if (!container) return;
+
+        let html = `
+            <div class="avg-rating-display">
+                <div class="big-rating">${data.average_rating}</div>
+                <div>
+                    ${generateStarRating(Math.round(data.average_rating), false)}
+                    <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 4px;">
+                        Based on ${data.total_reviews} review${data.total_reviews !== 1 ? 's' : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        if (data.reviews.length === 0) {
+            html += '<p style="color: var(--text-muted); text-align: center; padding: 20px;">No reviews yet. Be the first!</p>';
+        } else {
+            html += data.reviews.map(r => `
+                <div class="review-card">
+                    <div class="review-header">
+                        <span class="review-author">${r.buyer_name}</span>
+                        <span class="review-date">${new Date(r.created_at).toLocaleDateString()}</span>
+                    </div>
+                    ${generateStarRating(r.rating, false)}
+                    ${r.review_text ? `<p class="review-text" style="margin-top: 8px;">${r.review_text}</p>` : ''}
+                </div>
+            `).join('');
+        }
+
+        container.innerHTML = html;
+    } catch (error) {
+        console.error('Failed to load reviews:', error);
+    }
+}
+
 // --- UTILS ---
 function logout() {
     localStorage.removeItem('token');

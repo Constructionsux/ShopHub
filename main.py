@@ -132,7 +132,12 @@ class BuyerProfileUpdate(BaseModel):
     phone: Optional[str] = None
     default_shipping_address: Optional[str] = None
     default_billing_address: Optional[str] = None
-    
+
+class ReviewCreate(BaseModel):
+    product_id: int
+    order_id: int
+    rating: int
+    review_text: Optional[str] = ""
 
 # --- Auth Dependencies ---
 async def get_current_user(authorization: Optional[str] = Header(None), db=Depends(get_db)):
@@ -893,6 +898,77 @@ async def get_marketplace_products(
 
     products = await db.fetch(query, *params)
     return [dict(p) for p in products]
+
+
+# --- REVIEW ROUTES ---
+@app.post("/api/reviews")
+async def submit_review(
+    data: ReviewCreate, 
+    current_user: dict = Depends(require_buyer), 
+    db=Depends(get_db)
+):
+    # 1. Verify the buyer actually purchased this product in this order
+    order_check = await db.fetchrow(
+        """SELECT 1 FROM order_items oi 
+           JOIN orders o ON oi.order_id = o.id 
+           WHERE oi.order_id = $1 AND oi.product_id = $2 AND o.buyer_id = $3""",
+        data.order_id, data.product_id, current_user["id"]
+    )
+    
+    if not order_check:
+        raise HTTPException(status_code=403, detail="You can only review products you have purchased.")
+
+    # 2. Check if already reviewed
+    existing = await db.fetchrow(
+        "SELECT id FROM product_reviews WHERE product_id = $1 AND buyer_id = $2 AND order_id = $3",
+        data.product_id, current_user["id"], data.order_id
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="You have already reviewed this product for this order.")
+
+    # 3. Insert Review (Trigger will automatically update seller rating)
+    await db.execute(
+        """INSERT INTO product_reviews (product_id, buyer_id, order_id, rating, review_text) 
+           VALUES ($1, $2, $3, $4, $5)""",
+        data.product_id, current_user["id"], data.order_id, data.rating, data.review_text
+    )
+
+    # 4. Notify Seller
+    product = await db.fetchrow("SELECT name, seller_id FROM products WHERE id = $1", data.product_id)
+    if product:
+        await db.execute(
+            """INSERT INTO notifications (user_id, title, message, type) 
+               VALUES ($1, $2, $3, $4)""",
+            product["seller_id"], 
+            "New Product Review! ⭐", 
+            f"You received a {data.rating}-star review for '{product['name']}'.", 
+            "info"
+        )
+
+    return {"message": "Review submitted successfully!"}
+
+@app.get("/api/products/{product_id}/reviews")
+async def get_product_reviews(product_id: int, db=Depends(get_db)):
+    reviews = await db.fetch(
+        """SELECT pr.rating, pr.review_text, pr.created_at, u.full_name as buyer_name
+           FROM product_reviews pr
+           JOIN users u ON pr.buyer_id = u.id
+           WHERE pr.product_id = $1
+           ORDER BY pr.created_at DESC""",
+        product_id
+    )
+    
+    # Calculate average rating
+    avg_rating = await db.fetchval(
+        "SELECT COALESCE(AVG(rating), 0) FROM product_reviews WHERE product_id = $1", 
+        product_id
+    )
+    
+    return {
+        "average_rating": round(float(avg_rating), 1) if avg_rating else 0.0,
+        "total_reviews": len(reviews),
+        "reviews": [dict(r) for r in reviews]
+    }
     
 
 if __name__ == "__main__":

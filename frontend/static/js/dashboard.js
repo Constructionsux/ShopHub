@@ -915,6 +915,78 @@ async function loadProductReviews(productId) {
     }
 }
 
+async function loadBuyerOrders() {
+    const token = localStorage.getItem('token');
+    const container = document.getElementById('buyerOrdersList');
+    
+    try {
+        const res = await fetch(`${API_URL}/buyer/orders`, { headers: { 'Authorization': `Bearer ${token}` } });
+        if (!res.ok) throw new Error('Failed to load orders');
+        const orders = await res.json();
+
+        if (orders.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state-card">
+                    <i class="fas fa-box-open"></i>
+                    <h3>No orders yet</h3>
+                    <p>Your order history will appear here once you make a purchase.</p>
+                    <button class="btn btn-primary" onclick="showSection('marketplace')" style="margin-top: 15px;">
+                        <i class="fas fa-shopping-bag"></i> Start Shopping
+                    </button>
+                </div>`;
+            return;
+        }
+
+        container.innerHTML = orders.map(order => `
+            <div class="review-card" style="margin-bottom: 20px;">
+                <div class="review-header">
+                    <span class="review-author">Order #${order.id}</span>
+                    <span class="status-badge status-${order.status}">${order.status.charAt(0).toUpperCase() + order.status.slice(1)}</span>
+                </div>
+                <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 15px;">Total: $${parseFloat(order.total_amount).toFixed(2)} • ${new Date(order.created_at).toLocaleDateString()}</p>
+                
+                ${order.items.map(item => `
+                    <div class="order-item-row" style="margin-bottom: 10px;">
+                        ${item.image_url ? `<img src="${item.image_url}" alt="${item.name}">` : `<div class="no-img"><i class="fas fa-box"></i></div>`}
+                        <div class="order-item-info">
+                            <h5>${item.name}</h5>
+                            <p>Qty: ${item.quantity} × $${parseFloat(item.price_at_purchase).toFixed(2)}</p>
+                        </div>
+                        ${order.status === 'delivered' ? `
+                            <button class="btn btn-primary btn-sm" onclick="showReviewForm(${item.product_id}, ${order.id})">
+                                <i class="fas fa-star"></i> Leave Review
+                            </button>
+                        ` : ''}
+                    </div>
+                    ${order.status === 'delivered' ? `
+                        <div id="review-form-${item.product_id}-${order.id}" style="display: none; margin-top: 15px; padding: 15px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <h4 style="margin-bottom: 10px; font-size: 0.95rem;">Rate this product:</h4>
+                            ${generateStarRating(0, true, item.product_id, order.id)}
+                            <textarea id="review-text-${item.product_id}-${order.id}" rows="3" placeholder="Share your experience (optional)..." style="width: 100%; margin-top: 10px; padding: 10px; border: 1px solid #e2e8f0; border-radius: 6px; font-family: inherit;"></textarea>
+                            <div style="display: flex; gap: 10px; margin-top: 10px; justify-content: flex-end;">
+                                <button class="btn btn-outline btn-sm" onclick="document.getElementById('review-form-${item.product_id}-${order.id}').style.display = 'none'">Cancel</button>
+                                <button id="submit-review-btn-${item.product_id}-${order.id}" class="btn btn-primary btn-sm" onclick="submitReview(${item.product_id}, ${order.id})">Submit Review</button>
+                            </div>
+                        </div>
+                    ` : ''}
+                `).join('')}
+            </div>
+        `).join('');
+
+    } catch (error) {
+        console.error('Load buyer orders error:', error);
+        container.innerHTML = '<p style="text-align: center; color: var(--text-muted); padding: 40px;">Failed to load orders.</p>';
+    }
+}
+
+// Helper to show the review form
+function showReviewForm(productId, orderId) {
+    const form = document.getElementById(`review-form-${productId}-${orderId}`);
+    if (form) {
+        form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
 // --- UTILS ---
 function logout() {
     localStorage.removeItem('token');

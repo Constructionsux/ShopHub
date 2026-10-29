@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - ShopHub</title>
-    <!-- <link rel="stylesheet" href="/static/css/style.css"> -->
     <link rel="stylesheet" href="/static/css/dashboard.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
 </head>
@@ -371,15 +370,24 @@
                 </form>
             </div>
 
-            <!-- Buyer Fallback Placeholder -->
-            <div class="content-section" id="buyerSection" style="display: none;">
-                <div class="empty-state-card">
-                    <i class="fas fa-shopping-bag"></i>
-                    <h3>Welcome, Buyer!</h3>
-                    <p>Your order history and saved items will appear here.</p>
-                    <a href="/dashboard" onclick="showSection('buyerOverview')" class="btn btn-primary">Go to Dashboard</a>
+            <!-- Buyer Orders Section (Replaces Fallback Placeholder) -->
+            <div class="content-section" id="buyerOrdersSection" style="display: none;">
+                <div class="section-header">
+                    <h3>My Orders</h3>
+                </div>
+                <div id="buyerOrdersList">
+                    <!-- Populated by JS with orders and review forms -->
+                    <div class="empty-state-card">
+                        <i class="fas fa-box-open"></i>
+                        <h3>No orders yet</h3>
+                        <p>Your order history will appear here once you make a purchase.</p>
+                        <button class="btn btn-primary" onclick="showSection('marketplace')" style="margin-top: 15px;">
+                            <i class="fas fa-shopping-bag"></i> Start Shopping
+                        </button>
+                    </div>
                 </div>
             </div>
+
         </main>
     </div>
 
@@ -440,8 +448,6 @@
         </div>
     </div>
 
-     <!-- ... (keep all your existing HTML exactly as it is) ... -->
-
     <!-- Order Detail Modal -->
     <div class="modal-overlay" id="orderDetailModal">
         <div class="modal-content order-modal">
@@ -457,7 +463,6 @@
 
     <!-- Toast Notification Container -->
     <div id="toast-container" class="toast-container"></div>
-
 
     <script src="/static/js/dashboard.js"></script>
 </body>
